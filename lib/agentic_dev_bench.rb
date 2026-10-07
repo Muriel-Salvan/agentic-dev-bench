@@ -7,6 +7,7 @@ require 'shellwords'
 require 'time'
 
 require_relative 'agentic_dev_bench/version'
+require_relative 'agentic_dev_bench/debug'
 require_relative 'agentic_dev_bench/scenario'
 require_relative 'agentic_dev_bench/github_sandbox'
 require_relative 'agentic_dev_bench/harbor_runner'

@@ -39,13 +39,17 @@ module AgenticDevBench
     #
     # @param scenario [AgenticDevBench::Scenario] The scenario definition.
     # @param run_id [String] A unique identifier for the current benchmark run.
-    def initialize(scenario:, run_id:)
+    # @param debug [Boolean] When +true+, enable debug logging for git and
+    #   GitHub API operations.
+    def initialize(scenario:, run_id:, debug: false)
       @scenario = scenario
       @run_id = run_id
       @owner = ENV.fetch(scenario.sandbox.fetch('owner_env'))
       @token = ENV.fetch('GITHUB_TOKEN')
       @client = Octokit::Client.new(access_token: @token)
       @name = "#{scenario.sandbox.fetch('name_prefix')}-#{scenario.id}-#{run_id}"
+      @debug = debug
+      Debug.set_debug!(true) if debug
     end
 
     # Provisions an ephemeral GitHub sandbox repository for the benchmark run.
@@ -73,26 +77,42 @@ module AgenticDevBench
       raise 'Replace the placeholder source repository in the scenario' if source.include?('YOUR_')
       raise 'Replace the placeholder source commit in the scenario' if commit.include?('YOUR_')
 
+      Debug.debug("Creating GitHub repository: #{@name}")
+
       repo = @client.create_repository(
         @name,
         description: "Ephemeral sandbox for agentic-dev-bench run #{@run_id}",
         private: true,
         auto_init: false
       )
+      Debug.debug("GitHub repository created: #{repo.full_name}")
 
       original_commit = nil
       Dir.mktmpdir('agentic-dev-bench-source') do |dir|
-        original_commit = dir
-        system('git', 'clone', '--quiet', "https://github.com/#{source}.git", dir) or raise 'git clone failed'
+        Debug.debug("Cloning source repository: #{source} to #{dir}")
+        Debug.debug_system('git', 'clone', '--quiet', "https://github.com/#{source}.git", dir) or raise 'git clone failed'
+        Debug.debug('Source repository cloned successfully')
+
         Dir.chdir(dir) do
-          system('git', 'checkout', '--quiet', commit) or raise 'git checkout failed'
-          system('git', 'remote', 'set-url', 'origin', push_url(repo.clone_url)) or raise 'git remote setup failed'
-          system('git', 'push', '--quiet', 'origin', 'HEAD:refs/heads/main') or raise 'git push failed'
-          original_commit = `git rev-parse HEAD`.strip
+          Debug.debug("Checking out commit: #{commit}")
+          Debug.debug_system('git', 'checkout', '--quiet', commit) or raise 'git checkout failed'
+          original_commit = Debug.redact(`git rev-parse HEAD`.strip)
+          Debug.debug("Checked out commit #{original_commit}")
+
+          Debug.debug('Setting git remote URL for push (redacted)')
+          Debug.debug_system('git', 'remote', 'set-url', 'origin', push_url(repo.clone_url)) or raise 'git remote setup failed'
+          Debug.debug('Git remote updated')
+
+          Debug.debug('Pushing to origin main')
+          Debug.debug_system('git', 'push', '--quiet', 'origin', 'HEAD:refs/heads/main') or raise 'git push failed'
+          Debug.debug('Push completed')
         end
       end
 
+      Debug.debug("Creating GitHub issue in #{@owner}/#{@name}")
       issue = @client.create_issue("#{@owner}/#{@name}", @scenario.issue.fetch('title'), @scenario.issue.fetch('body'))
+      Debug.debug("GitHub issue created: ##{issue.number}")
+
       {
         'repository' => repo.full_name,
         'repository_url' => repo.html_url,
@@ -128,7 +148,9 @@ module AgenticDevBench
     #
     # @raise [Octokit::NotFound] Never raised; always rescues +Octokit::NotFound+.
     def destroy!
+      Debug.debug("Destroying GitHub repository #{@owner}/#{@name}")
       @client.delete_repository("#{@owner}/#{@name}")
+      Debug.debug('Sandbox repository destroyed')
     end
 
   end

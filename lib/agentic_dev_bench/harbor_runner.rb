@@ -54,10 +54,12 @@ module AgenticDevBench
     #   GitHubSandbox#provision!).
     # @param workspace [String] The path to the workspace directory where the
     #   task files will be written and the Harbor run will be executed.
-    def initialize(scenario:, sandbox:, workspace:)
+    def initialize(scenario:, sandbox:, workspace:, debug: false)
       @scenario = scenario
       @sandbox = sandbox
       @workspace = workspace
+      @debug = debug
+      Debug.set_debug!(true) if debug
     end
 
     # Runs the agent in the Harbor environment.
@@ -73,6 +75,7 @@ module AgenticDevBench
     #
     # @raise [SystemCallError] If the Harbor CLI command fails to execute.
     def run!
+      Debug.debug("Preparing Harbor task directory in #{@workspace}")
       task_dir = File.join(@workspace, 'task')
       FileUtils.mkdir_p(task_dir)
 
@@ -87,15 +90,27 @@ module AgenticDevBench
       write_instruction_file(task_dir)
       write_task_toml(task_dir)
       write_environment_dockerfile(task_dir)
-      write_tests(test_dir = File.join(task_dir, 'tests'))
-      FileUtils.mkdir_p(test_dir)
+      test_dir = File.join(task_dir, 'tests')
+      Debug.debug("Writing test script to #{test_dir}")
+      write_tests(test_dir)
 
       # Harbor 0.24.0 CLI: harbor run -p <task_directory> -a <agent> -m <model>
       # The old `--task <file>` syntax is no longer supported in Harbor 0.24.0
+      # Note: `harbor run` has no stable --debug flag, so in debug mode we
+      # rely on our own command/exit/output logging plus Docker verbosity
+      # below (harbor shells out to docker for builds/runs).
       agent_name = @scenario.agent.fetch('name')
       model = @scenario.agent.fetch('model')
       argv = ['harbor', 'run', '-p', task_dir, '-a', agent_name, '-m', model]
-      stdout, stderr, status = Open3.capture3(*argv)
+      Debug.debug("Executing Harbor run with command: #{argv.inspect}")
+      env = {}
+      if Debug.enabled?
+        # Docker's own debug knobs (harbor invokes docker under the hood).
+        env = { 'DOCKER_DEBUG' => '1', 'BUILDKIT_PROGRESS' => 'plain' }
+        Debug.debug("Harbor docker debug env: #{env.inspect}")
+      end
+      stdout, stderr, status = Debug.debug_exec(env, *argv)
+      Debug.debug("Harbor run finished with exit_code=#{status.exitstatus}")
       Result.new(status.exitstatus, stdout, stderr)
     end
 
@@ -110,7 +125,9 @@ module AgenticDevBench
         An issue containing the benchmark requirements has already been created.
         Implement the requirements, add appropriate tests, and create a pull request when appropriate.
       TXT
-      File.write(File.join(task_dir, 'instruction.md'), instruction)
+      path = File.join(task_dir, 'instruction.md')
+      Debug.debug("Writing instruction file: #{path}")
+      File.write(path, instruction)
     end
 
     # Writes the Harbor task configuration file.
@@ -126,7 +143,9 @@ module AgenticDevBench
         framework = "unknown"
         environment_type = "docker"
       TOML
-      File.write(File.join(task_dir, 'task.toml'), task_toml)
+      path = File.join(task_dir, 'task.toml')
+      Debug.debug("Writing task config: #{path}")
+      File.write(path, task_toml)
     end
 
     # Writes the Dockerfile for the task environment.
@@ -150,6 +169,7 @@ module AgenticDevBench
         WORKDIR /workspace
       DOCKERFILE
       env_dir = File.join(task_dir, 'environment')
+      Debug.debug("Writing Dockerfile to #{env_dir}")
       FileUtils.mkdir_p(env_dir)
       File.write(File.join(env_dir, 'Dockerfile'), dockerfile)
     end

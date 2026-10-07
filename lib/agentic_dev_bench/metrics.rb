@@ -42,11 +42,16 @@ module AgenticDevBench
     # @param exit_code [Integer] The agent process exit status code.
     # @param started_at [Time] The timestamp when the run started.
     # @param finished_at [Time] The timestamp when the run finished.
+    # @param debug [Boolean] When +true+, enable debug logging.
     #
     # @return [Hash] A hash containing the collected metrics.
-    def self.collect(workspace:, github_repository_url:, original_commit:, exit_code:, started_at:, finished_at:)
+    def self.collect(workspace:, github_repository_url:, original_commit:, exit_code:, started_at:, finished_at:, debug: false)
+      Debug.set_debug!(true) if debug
+      Debug.debug("Collecting metrics for #{github_repository_url} @ #{original_commit}")
       diff = compute_git_diff(github_repository_url: github_repository_url, original_commit: original_commit)
-      Dir.rmdir(workspace) rescue nil
+      Debug.debug("Diff stat bytes=#{diff.bytesize}; cleaning workspace #{workspace}")
+      FileUtils.rm_rf(workspace)
+      Debug.debug('Workspace cleaned')
 
       {
         'exit_code' => exit_code,
@@ -74,24 +79,29 @@ module AgenticDevBench
       # Clone the GitHub sandbox repository into a temporary directory
       temp_dir = Dir.mktmpdir('agentic-dev-bench-git')
       begin
+        Debug.debug("Cloning sandbox for diff into #{temp_dir} (URL redacted)")
         github_url = github_repository_url.gsub('https://', 'https://x-access-token:' + ENV.fetch('GITHUB_TOKEN') + '@')
 
-        # Clone the repository
-        stdout, stderr, status = Open3.capture3('git', 'clone', '--quiet', github_url, temp_dir)
+        # Clone the repository (git's own trace goes to stderr when --debug)
+        _stdout, stderr, status = Debug.debug_exec('git', 'clone', '--quiet', github_url, temp_dir)
         unless status.success?
-          warn "git clone failed: #{stderr}"
+          warn "git clone failed: #{Debug.redact(stderr)}"
           return ''
         end
+        Debug.debug('Sandbox clone for diff succeeded')
 
         # Checkout the original commit and compute the diff against HEAD
         Dir.chdir(temp_dir) do
-          system('git', 'checkout', '--quiet', original_commit) or return ''
+          Debug.debug("Checking out original commit #{original_commit} for diff")
+          return '' unless Debug.debug_system('git', 'checkout', '--quiet', original_commit)
 
-          stdout, stderr, status = Open3.capture3('git', 'diff', '--stat', original_commit, 'HEAD')
+          Debug.debug("Computing git diff --stat #{original_commit}..HEAD")
+          stdout, stderr, _status = Debug.debug_exec('git', 'diff', '--stat', original_commit, 'HEAD')
           return "#{stdout}#{stderr}".strip
         end
       ensure
         # Clean up the temporary directory
+        Debug.debug("Removing diff temp dir #{temp_dir}")
         FileUtils.rm_rf(temp_dir)
       end
     end

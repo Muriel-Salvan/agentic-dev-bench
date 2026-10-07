@@ -76,11 +76,13 @@ module AgenticDevBench
     #
     desc 'execute SCENARIO', 'Executes a benchmark scenario.'
     option :keep, type: :boolean, default: false, desc: 'Preserves the GitHub sandbox after the run for debugging purposes.'
-    # @example Keep the sandbox
-    #   $ bundle exec bin/agentic-dev-bench execute scenarios/add-greeting.yml --keep
+    option :debug, type: :boolean, default: false, desc: 'Enable debug logging for setup, harbor, git, and docker operations.'
     def execute(path)
       scenario = Scenario.new(path)
-      run_id, result = AgenticDevBench::Run.new(scenario).execute!(keep: options[:keep])
+      AgenticDevBench::Debug.set_debug!(options[:debug])
+      Debug.debug("Executing scenario #{scenario.id} (#{scenario.name}) from #{scenario.path}")
+      Debug.debug("Options: keep=#{options[:keep]} debug=#{options[:debug]}")
+      run_id, result = AgenticDevBench::Run.new(scenario, debug: options[:debug]).execute!(keep: options[:keep])
       puts TTY::Table.new(
         header: %w[Metric Value],
         rows: result.map { |key, value| [key, value] }

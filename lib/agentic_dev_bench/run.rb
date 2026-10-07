@@ -35,8 +35,11 @@ module AgenticDevBench
     # +runs/+ folder relative to the project root.
     #
     # @param scenario [AgenticDevBench::Scenario] The scenario to execute.
-    def initialize(scenario)
+    # @param debug [Boolean] When +true+, enable debug logging.
+    def initialize(scenario, debug: false)
       @scenario = scenario
+      @debug = debug
+      Debug.set_debug!(true) if debug
       @id = "#{Time.now.utc.strftime('%Y%m%dT%H%M%SZ')}-#{SecureRandom.hex(4)}"
       @directory = File.expand_path(File.join(__dir__, '..', '..', 'runs', @id))
     end
@@ -62,28 +65,46 @@ module AgenticDevBench
     # @raise [RuntimeError] If the GitHub repository clone fails.
     # @raise [Octokit::Error] If GitHub API operations fail.
     def execute!(keep: false)
+      sandbox = nil
+      Debug.debug("Starting run #{@id} in directory #{@directory}")
+
       FileUtils.mkdir_p(@directory)
-      sandbox = GitHubSandbox.new(scenario: @scenario, run_id: @id)
+      Debug.debug("Run directory ready: #{@directory}")
+
+      sandbox = GitHubSandbox.new(scenario: @scenario, run_id: @id, debug: @debug)
       started_at = Time.now
+      Debug.debug("Provisioning GitHub sandbox for #{@scenario.id}...")
       sandbox_info = sandbox.provision!
+      Debug.debug("Sandbox provisioned: #{sandbox_info['repository_url']}")
       File.write(File.join(@directory, 'sandbox.yml'), sandbox_info.to_yaml)
+      Debug.debug("Wrote sandbox.yml")
 
       workspace = File.join(@directory, 'workspace')
       FileUtils.mkdir_p(workspace)
-      result = HarborRunner.new(scenario: @scenario, sandbox: sandbox_info, workspace: workspace).run!
-      finished_at = Time.now
+      Debug.debug("Created workspace: #{workspace}")
 
+      Debug.debug("Running Harbor agent for #{@scenario.id}...")
+      result = HarborRunner.new(scenario: @scenario, sandbox: sandbox_info, workspace: workspace, debug: @debug).run!
+      finished_at = Time.now
+      Debug.debug("Harbor run finished with exit_code=#{result.exit_code}")
+
+      Debug.debug("Collecting metrics...")
       metrics = Metrics.collect(
         workspace: workspace,
         github_repository_url: sandbox_info['repository_url'],
         original_commit: sandbox_info['original_commit'],
         exit_code: result.exit_code,
         started_at: started_at,
-        finished_at: finished_at
+        finished_at: finished_at,
+        debug: @debug
       )
+      Debug.debug("Collected metrics: #{metrics.inspect}")
+
       File.write(File.join(@directory, 'stdout.log'), result.stdout)
       File.write(File.join(@directory, 'stderr.log'), result.stderr)
       File.write(File.join(@directory, 'result.yml'), metrics.to_yaml)
+      Debug.debug("Saved stdout.log, stderr.log, result.yml to #{@directory}")
+
       [@id, metrics]
     ensure
       sandbox&.destroy! unless keep
