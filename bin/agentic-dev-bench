@@ -1,0 +1,5 @@
+#!/usr/bin/env ruby
+
+require_relative '../lib/agentic_dev_bench'
+
+AgenticDevBench::CLI.start(ARGV)
