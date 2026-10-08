@@ -3,9 +3,8 @@ require 'open3'
 module AgenticDevBench
   # Central debug-logging helper.
   #
-  # The --debug flag is set via Debug.set_debug!() (called from the CLI)
-  # and read via Debug.enabled?. Components also receive a `debug:`
-  # keyword for explicit wiring, but all logging funnels through this
+  # The --debug flag is set once via Debug.set_debug!() (called from the CLI)
+  # and read via Debug.enabled?. All logging funnels through this
   # module so output has a consistent timestamped format.
   #
   # Subprocess helpers redact embedded credentials (e.g. x-access-token
@@ -20,8 +19,6 @@ module AgenticDevBench
     REDACTED = '[REDACTED]'.freeze
 
     class << self
-      attr_writer :debug
-
       # Enable or disable debug logging.
       #
       # @param value [Boolean] True to enable debug logging.

@@ -54,12 +54,10 @@ module AgenticDevBench
     #   GitHubSandbox#provision!).
     # @param workspace [String] The path to the workspace directory where the
     #   task files will be written and the Harbor run will be executed.
-    def initialize(scenario:, sandbox:, workspace:, debug: false)
+    def initialize(scenario:, sandbox:, workspace:)
       @scenario = scenario
       @sandbox = sandbox
       @workspace = workspace
-      @debug = debug
-      Debug.set_debug!(true) if debug
     end
 
     # Runs the agent in the Harbor environment.

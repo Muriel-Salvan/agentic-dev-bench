@@ -74,10 +74,10 @@ module AgenticDevBench
       scenario = all_scenarios.find { |s| s.id == name }
       raise Thor::Error, "Scenario '#{name}' not found. Available: #{all_scenarios.map(&:id).join(', ')}" if scenario.nil?
 
-      AgenticDevBench::Debug.set_debug!(options[:debug])
+      Debug.set_debug!(options[:debug])
       Debug.debug("Executing scenario #{scenario.id} (#{scenario.name})")
       Debug.debug("Options: keep=#{options[:keep]} debug=#{options[:debug]}")
-      run_id, result = AgenticDevBench::Run.new(scenario, debug: options[:debug]).execute!(keep: options[:keep])
+      run_id, result = Run.new(scenario).execute!(keep: options[:keep])
       puts TTY::Table.new(
         header: %w[Metric Value],
         rows: result.map { |key, value| [key, value] }

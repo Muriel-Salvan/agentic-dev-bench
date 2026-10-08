@@ -42,11 +42,9 @@ module AgenticDevBench
     # @param exit_code [Integer] The agent process exit status code.
     # @param started_at [Time] The timestamp when the run started.
     # @param finished_at [Time] The timestamp when the run finished.
-    # @param debug [Boolean] When +true+, enable debug logging.
     #
     # @return [Hash] A hash containing the collected metrics.
-    def self.collect(workspace:, github_repository_url:, original_commit:, exit_code:, started_at:, finished_at:, debug: false)
-      Debug.set_debug!(true) if debug
+    def self.collect(workspace:, github_repository_url:, original_commit:, exit_code:, started_at:, finished_at:)
       Debug.debug("Collecting metrics for #{github_repository_url} @ #{original_commit}")
       diff = compute_git_diff(github_repository_url: github_repository_url, original_commit: original_commit)
       Debug.debug("Diff stat bytes=#{diff.bytesize}; cleaning workspace #{workspace}")

@@ -39,17 +39,13 @@ module AgenticDevBench
     #
     # @param scenario [AgenticDevBench::Scenario] The scenario definition.
     # @param run_id [String] A unique identifier for the current benchmark run.
-    # @param debug [Boolean] When +true+, enable debug logging for git and
-    #   GitHub API operations.
-    def initialize(scenario:, run_id:, debug: false)
+    def initialize(scenario:, run_id:)
       @scenario = scenario
       @run_id = run_id
       @owner = ENV.fetch(scenario.sandbox.fetch('owner_env'))
       @token = ENV.fetch('GITHUB_TOKEN')
       @client = Octokit::Client.new(access_token: @token)
       @name = "#{scenario.sandbox.fetch('name_prefix')}-#{scenario.id}-#{run_id}"
-      @debug = debug
-      Debug.set_debug!(true) if debug
     end
 
     # Provisions an ephemeral GitHub sandbox repository for the benchmark run.
