@@ -74,8 +74,10 @@ module AgenticDevBench
         Debug.debug("Provisioning GitHub sandbox for #{@scenario.id}...")
         sandbox_info = sandbox.provision!
         Debug.debug("Sandbox provisioned: #{sandbox_info['repository_url']}")
-        File.write(File.join(@directory, 'sandbox.yml'), sandbox_info.to_yaml)
-        Debug.debug("Wrote sandbox.yml")
+        if Debug.enabled?
+          File.write(File.join(@directory, 'sandbox.yml'), sandbox_info.to_yaml)
+          Debug.debug("Wrote sandbox.yml")
+        end
 
         workspace = File.join(@directory, 'workspace')
         FileUtils.mkdir_p(workspace)

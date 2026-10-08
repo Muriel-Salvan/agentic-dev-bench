@@ -1,3 +1,4 @@
+require 'git'
 require 'octokit'
 require 'uri'
 require 'cgi'
@@ -79,23 +80,21 @@ module AgenticDevBench
       dir = Dir.mktmpdir('agentic-dev-bench-source', @run.directory)
       begin
         Debug.debug("Cloning source repository: #{source} to #{dir}")
-        Debug.debug_system('git', 'clone', '--quiet', "https://github.com/#{source}.git", dir) or raise 'git clone failed'
+        git = with_git_trace { Git.clone("https://github.com/#{source}.git", dir) }
         Debug.debug('Source repository cloned successfully')
 
-        Dir.chdir(dir) do
-          Debug.debug("Checking out commit: #{commit}")
-          Debug.debug_system('git', 'checkout', '--quiet', commit) or raise 'git checkout failed'
-          original_commit = Debug.redact(`git rev-parse HEAD`.strip)
-          Debug.debug("Checked out commit #{original_commit}")
+        Debug.debug("Checking out commit: #{commit}")
+        with_git_trace { git.checkout(commit) }
+        original_commit = with_git_trace { git.rev_parse('HEAD') }
+        Debug.debug("Checked out commit #{original_commit}")
 
-          Debug.debug('Setting git remote URL for push (redacted)')
-          Debug.debug_system('git', 'remote', 'set-url', 'origin', push_url(repo.clone_url)) or raise 'git remote setup failed'
-          Debug.debug('Git remote updated')
+        Debug.debug('Setting git remote URL for push (redacted)')
+        with_git_trace { git.remote_set_url('origin', push_url(repo.clone_url)) }
+        Debug.debug('Git remote updated')
 
-          Debug.debug('Pushing to origin main')
-          Debug.debug_system('git', 'push', '--quiet', 'origin', 'HEAD:refs/heads/main') or raise 'git push failed'
-          Debug.debug('Push completed')
-        end
+        Debug.debug('Pushing to origin main')
+        with_git_trace { git.push('origin', 'HEAD:refs/heads/main') }
+        Debug.debug('Push completed')
       ensure
         if @keep
           Debug.debug("Keeping temporary clone directory #{dir}")
@@ -152,6 +151,40 @@ module AgenticDevBench
         Debug.debug("Destroying GitHub repository #{@owner}/#{@name}")
         @client.delete_repository("#{@owner}/#{@name}")
         Debug.debug('Sandbox repository destroyed')
+      end
+    end
+
+    private
+
+    # Runs a ruby-git operation with git's own trace output enabled when
+    # debugging, mirroring the previous +Debug.debug_system+ behavior
+    # (which merged +Debug.git_debug_env+ into git child processes).
+    #
+    # The ruby-git gem does not accept a per-call +env+ hash, so the trace
+    # variables are temporarily merged into +ENV+ for the duration of the block
+    # and restored afterwards (including on exception).
+    #
+    # @yield The ruby-git operation to run.
+    # @return [Object] The block's return value.
+    def with_git_trace(&block)
+      trace_env = Debug.git_debug_env
+      return block.call if trace_env.empty?
+
+      saved = {}
+      begin
+        trace_env.each do |key, value|
+          saved[key] = ENV[key]
+          ENV[key] = value
+        end
+        block.call
+      ensure
+        saved.each do |key, value|
+          if value.nil?
+            ENV.delete(key)
+          else
+            ENV[key] = value
+          end
+        end
       end
     end
 

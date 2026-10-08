@@ -6,7 +6,7 @@ module AgenticDevBench
   # the Harbor CLI to have an AI agent complete the task. It captures the agent's
   # output and exit status for metrics collection.
   #
-  # == Harbor Task Directory Structure (Harbor 0.24.0)
+  # == Harbor Task Directory Structure
   #
   #   task_dir/
   #     instruction.md     # The prompt for the AI agent
@@ -37,15 +37,6 @@ module AgenticDevBench
     # @!attribute [rw] stderr
     #   @return [String] The standard error captured from the Harbor run.
     Result = Data.define(:exit_code, :stdout, :stderr)
-
-    # @return [AgenticDevBench::Scenario] The benchmark scenario being executed.
-    attr_reader :scenario
-
-    # @return [Hash] The sandbox repository information.
-    attr_reader :sandbox
-
-    # @return [String] The path to the workspace directory.
-    attr_reader :workspace
 
     # Initializes a new HarborRunner.
     #
