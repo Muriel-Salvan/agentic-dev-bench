@@ -102,7 +102,7 @@ module AgenticDevBench
         env = argv.first.is_a?(Hash) ? argv.shift : {}
         env = git_debug_env.merge(env) if argv.first.to_s == 'git' && enabled?
         debug("Running (system): #{redact(argv.inspect)}")
-        system(env, *argv)
+        system(env, *argv, exception: true)
       end
     end
   end

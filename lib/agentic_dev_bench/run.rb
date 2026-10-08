@@ -28,6 +28,9 @@ module AgenticDevBench
     # @return [String] The unique identifier of this run.
     attr_reader :id
 
+    # @return [String] The absolute path of the run directory under +runs/+.
+    attr_reader :directory
+
     # Initializes a new Run.
     #
     # Generates a unique run ID using the current UTC timestamp and a
@@ -63,11 +66,9 @@ module AgenticDevBench
     # @raise [Octokit::Error] If GitHub API operations fail.
     def execute!(keep: false)
       Debug.debug("Starting run #{@id} in directory #{@directory}")
-
       FileUtils.mkdir_p(@directory)
-      Debug.debug("Run directory ready: #{@directory}")
 
-      sandbox = GitHubSandbox.new(scenario: @scenario, run_id: @id)
+      sandbox = GitHubSandbox.new(scenario: @scenario, run: self, keep: keep)
       begin
         started_at = Time.now
         Debug.debug("Provisioning GitHub sandbox for #{@scenario.id}...")
@@ -103,7 +104,7 @@ module AgenticDevBench
 
         [@id, metrics]
       ensure
-        sandbox&.destroy! unless keep
+        sandbox.destroy!
       end
     end
   end

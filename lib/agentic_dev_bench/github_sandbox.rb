@@ -22,30 +22,30 @@ module AgenticDevBench
   #
   #   sandbox = AgenticDevBench::GitHubSandbox.new(
   #     scenario: scenario,
-  #     run_id: run_id
+  #     run: run
   #   )
   #   info = sandbox.provision!
   #   # => { repository: "...", repository_url: "...", issue_number: 1, ... }
   #   sandbox.destroy!  # clean up the repository
   #
   class GitHubSandbox
-    # @return [String] The unique identifier of the current run.
-    attr_reader :run_id
-
     # Initializes a new GitHubSandbox.
     #
     # Loads the GitHub owner from the environment (via +scenario.sandbox['owner_env'])
     # and sets up the Octokit client with the provided token.
     #
     # @param scenario [AgenticDevBench::Scenario] The scenario definition.
-    # @param run_id [String] A unique identifier for the current benchmark run.
-    def initialize(scenario:, run_id:)
+    # @param run [AgenticDevBench::Run] The current benchmark run.
+    # @param keep [Boolean] When +true+, preserves the temporary clone directory
+    #   and the sandbox repository for debugging purposes. Default: +false+.
+    def initialize(scenario:, run:, keep: false)
       @scenario = scenario
-      @run_id = run_id
+      @run = run
+      @keep = keep
       @owner = ENV.fetch(scenario.sandbox.fetch('owner_env'))
       @token = ENV.fetch('GITHUB_TOKEN')
       @client = Octokit::Client.new(access_token: @token)
-      @name = "#{scenario.sandbox.fetch('name_prefix')}-#{scenario.id}-#{run_id}"
+      @name = "#{scenario.sandbox.fetch('name_prefix')}-#{scenario.id}-#{run.id}"
     end
 
     # Provisions an ephemeral GitHub sandbox repository for the benchmark run.
@@ -62,29 +62,22 @@ module AgenticDevBench
     #   * +issue_number+ [Integer] The number of the created GitHub issue.
     #   * +issue_url+ [String] The HTML URL of the created issue.
     #   * +original_commit+ [String] The SHA of the commit pushed to the new repository.
-    #
-    # @raise [RuntimeError] If the source repository or commit contains placeholder
-    #   text ('YOUR_'), indicating the scenario file was not updated.
-    # @raise [RuntimeError] If git clone, checkout, remote setup, or push fails.
-    # @raise [Octokit::Error] If GitHub API operations fail.
     def provision!
-      source = @scenario.source.fetch('repository')
-      commit = @scenario.source.fetch('commit')
-      raise 'Replace the placeholder source repository in the scenario' if source.include?('YOUR_')
-      raise 'Replace the placeholder source commit in the scenario' if commit.include?('YOUR_')
-
       Debug.debug("Creating GitHub repository: #{@name}")
 
+      source = @scenario.source.fetch('repository')
+      commit = @scenario.source.fetch('commit')
       repo = @client.create_repository(
         @name,
-        description: "Ephemeral sandbox for agentic-dev-bench run #{@run_id}",
+        description: "Ephemeral sandbox for agentic-dev-bench run #{@run.id}",
         private: true,
         auto_init: false
       )
       Debug.debug("GitHub repository created: #{repo.full_name}")
 
       original_commit = nil
-      Dir.mktmpdir('agentic-dev-bench-source') do |dir|
+      dir = Dir.mktmpdir('agentic-dev-bench-source', @run.directory)
+      begin
         Debug.debug("Cloning source repository: #{source} to #{dir}")
         Debug.debug_system('git', 'clone', '--quiet', "https://github.com/#{source}.git", dir) or raise 'git clone failed'
         Debug.debug('Source repository cloned successfully')
@@ -102,6 +95,12 @@ module AgenticDevBench
           Debug.debug('Pushing to origin main')
           Debug.debug_system('git', 'push', '--quiet', 'origin', 'HEAD:refs/heads/main') or raise 'git push failed'
           Debug.debug('Push completed')
+        end
+      ensure
+        if @keep
+          Debug.debug("Keeping temporary clone directory #{dir}")
+        else
+          FileUtils.rm_rf(dir)
         end
       end
 
@@ -138,15 +137,22 @@ module AgenticDevBench
 
     # Destroys the sandbox repository on GitHub.
     #
+    # When +keep+ is +true+, the repository is preserved for debugging
+    # and this method is a no-op.
+    #
     # @return [nil] Always returns +nil+. If the repository has already
     #   been deleted (HTTP 404), this method silently swallows the error
     #   and returns +nil+.
     #
     # @raise [Octokit::NotFound] Never raised; always rescues +Octokit::NotFound+.
     def destroy!
-      Debug.debug("Destroying GitHub repository #{@owner}/#{@name}")
-      @client.delete_repository("#{@owner}/#{@name}")
-      Debug.debug('Sandbox repository destroyed')
+      if @keep
+        Debug.debug("Keeping GitHub repository #{@owner}/#{@name}")
+      else
+        Debug.debug("Destroying GitHub repository #{@owner}/#{@name}")
+        @client.delete_repository("#{@owner}/#{@name}")
+        Debug.debug('Sandbox repository destroyed')
+      end
     end
 
   end
