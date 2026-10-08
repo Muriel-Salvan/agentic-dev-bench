@@ -25,8 +25,8 @@ Before running the sample, replace the source repository and immutable commit in
 
 ```bash
 bundle exec bin/agentic-dev-bench list
-bundle exec bin/agentic-dev-bench execute scenarios/add-greeting.yml
-bundle exec bin/agentic-dev-bench execute scenarios/add-greeting.yml --keep
+bundle exec bin/agentic-dev-bench execute add-greeting
+bundle exec bin/agentic-dev-bench execute add-greeting --keep
 ```
 
 Runs are stored below `runs/` and include the sandbox metadata, Harbor stdout/stderr, and `result.yml`. Successful runs are cleaned up automatically; `--keep` preserves the sandbox for inspection.

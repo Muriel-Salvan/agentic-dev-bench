@@ -4,9 +4,6 @@ require 'tty-table'
 module AgenticDevBench
   # Command-line interface for agentic-dev-bench.
   #
-  # The CLI is built on Thor (http://whatisthor.com/) and provides two
-  # commands for managing and executing benchmark scenarios.
-  #
   # == Commands
   #
   # === list
@@ -22,7 +19,7 @@ module AgenticDevBench
   #
   # Executes a benchmark scenario.
   #
-  #   $ bundle exec bin/agentic-dev-bench execute scenarios/add-greeting.yml
+  #   $ bundle exec bin/agentic-dev-bench execute add-greeting
   #   +-----------+--------------------------------+
   #   | Metric    | Value                          |
   #   +-----------+--------------------------------+
@@ -35,11 +32,7 @@ module AgenticDevBench
   #
   # With the +--keep+ option, the GitHub sandbox is preserved after the run:
   #
-  #   $ bundle exec bin/agentic-dev-bench execute scenarios/add-greeting.yml --keep
-  #
-  # == Example
-  #
-  #   CLI.new.start(ARGV)
+  #   $ bundle exec bin/agentic-dev-bench execute add-greeting --keep
   #
   class CLI < Thor
     # Lists all available scenario files in the +scenarios/+ directory.
@@ -53,8 +46,7 @@ module AgenticDevBench
     #   add-greeting	Add greeting helper
     desc 'list', 'Lists all available scenario files in the +scenarios/+ directory.'
     def list
-      Dir['scenarios/*.yml'].sort.each do |path|
-        scenario = Scenario.new(path)
+      Scenario.all.each do |scenario|
         puts "#{scenario.id}\t#{scenario.name}"
       end
     end
@@ -64,23 +56,26 @@ module AgenticDevBench
     # Loads the scenario, executes it via +AgenticDevBench::Run+, and
     # displays the results in a table. Also prints the run directory path.
     #
-    # @param path [String] The path to the scenario YAML file (e.g.
-    #   +scenarios/add-greeting.yml+ or the full path to a .yml file).
+    # @param name [String] The scenario name (e.g. +add-greeting+,
+    #   resolved to +scenarios/add-greeting.yml+).
     #
     # @option options [Boolean] :keep (false)
     #   When +true+, preserves the GitHub sandbox after the run
     #   completes for debugging purposes.
     #
     # @example Basic execution
-    #   $ bundle exec bin/agentic-dev-bench execute scenarios/add-greeting.yml
+    #   $ bundle exec bin/agentic-dev-bench execute add-greeting
     #
     desc 'execute SCENARIO', 'Executes a benchmark scenario.'
     option :keep, type: :boolean, default: false, desc: 'Preserves the GitHub sandbox after the run for debugging purposes.'
     option :debug, type: :boolean, default: false, desc: 'Enable debug logging for setup, harbor, git, and docker operations.'
-    def execute(path)
-      scenario = Scenario.new(path)
+    def execute(name)
+      all_scenarios = Scenario.all
+      scenario = all_scenarios.find { |s| s.id == name }
+      raise Thor::Error, "Scenario '#{name}' not found. Available: #{all_scenarios.map(&:id).join(', ')}" if scenario.nil?
+
       AgenticDevBench::Debug.set_debug!(options[:debug])
-      Debug.debug("Executing scenario #{scenario.id} (#{scenario.name}) from #{scenario.path}")
+      Debug.debug("Executing scenario #{scenario.id} (#{scenario.name})")
       Debug.debug("Options: keep=#{options[:keep]} debug=#{options[:debug]}")
       run_id, result = AgenticDevBench::Run.new(scenario, debug: options[:debug]).execute!(keep: options[:keep])
       puts TTY::Table.new(

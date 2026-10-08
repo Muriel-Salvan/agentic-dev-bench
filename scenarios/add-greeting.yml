@@ -12,10 +12,10 @@ sandbox:
 issue:
   title: Add a greeting helper
   body: |
-    Add a small reusable greeting helper to the repository.
+    Add a small reusable greeting helper to the cline-rb config.
 
     Requirements:
-    - Add a function or method named `greeting`.
+    - Add a method named `greeting` in Cline::Config.
     - It must return exactly `Hello, world!`.
     - Add automated tests covering the new behavior.
     - Keep the implementation small and idiomatic for the repository.
@@ -24,7 +24,7 @@ agent:
   # Harbor agent identifier (from Harbor's agent catalog)
   name: cline-cli
   # Model identifier (Harbor agent registry)
-  model: cline:cline-free/solar-mini4
+  model: cline:cline-free/muse-spark-1.3-contributor
 
 evaluation:
   command: "bundle exec rspec"

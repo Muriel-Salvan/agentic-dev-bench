@@ -3,7 +3,7 @@ module AgenticDevBench
   #
   # A scenario defines a complete benchmark task including the source
   # repository to clone, the GitHub sandbox configuration, the issue
-  # to create, the agent and model to use, and the evaluation criteria.
+  # to create, the Harbor agent and model to use, and the evaluation criteria.
   #
   # == JSON/YAML File Structure
   #
@@ -24,9 +24,6 @@ module AgenticDevBench
   #   puts scenario.source  # => { repository: "...", commit: "..." }
   #
   class Scenario
-    # @return [String] The file path this scenario was loaded from.
-    attr_reader :path
-
     # @return [Hash] The parsed YAML content of the scenario file.
     attr_reader :data
 
@@ -37,8 +34,20 @@ module AgenticDevBench
     #
     # @param path [String] The path to the scenario YAML file.
     def initialize(path)
-      @path = File.expand_path(path)
-      @data = YAML.load_file(@path)
+      @data = YAML.load_file(path)
+    end
+
+    # Returns all available scenarios sorted by file path.
+    #
+    # Scans the +scenarios/+ directory for +.yml+ files and loads
+    # each one as a Scenario object.
+    #
+    # @return [Array<Scenario>] All available scenarios.
+    #
+    # @example
+    #   Scenario.all.each { |scenario| puts scenario.id }
+    def self.all
+      Dir['scenarios/*.yml'].sort.map { |path| new(path) }
     end
 
     # @return [String] The scenario's unique identifier (from +id+ field).
