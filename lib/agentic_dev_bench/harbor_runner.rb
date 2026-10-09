@@ -114,6 +114,18 @@ module AgenticDevBench
           framework = "unknown"
           environment_type = "docker"
 
+          # Copy the agent's working tree into the verifier before grading.
+          # With [verifier] environment_mode = "separate" below, Harbor starts
+          # the verifier from a fresh sandbox WITHOUT the agent's filesystem
+          # changes. Declaring /workspace as an artifact makes Harbor collect
+          # it after the agent finishes and restore it to its original path
+          # (/workspace) in the verifier, so tests/test.sh grades the agent's
+          # actual clone in place. `destination` only affects the host-side
+          # save path; the verifier always receives the source path.
+          artifacts = [
+            { source = "/workspace", destination = "workspace" },
+          ]
+
           # Sandbox baseline: GitHub credentials for the agent container.
           # Harbor interpolates ${VAR} from the `harbor run` process
           # environment at run time, so the secret never lands in the
@@ -137,9 +149,12 @@ module AgenticDevBench
           # filesystem. Without a verifier-specific image or build
           # definition, Harbor starts a fresh copy of the agent
           # environment (built from environment/Dockerfile) and uploads
-          # tests/ to /tests/ there. The agent's filesystem changes are
-          # NOT inherited, so the verifier grades the sandbox GitHub
-          # repository (cloned fresh) rather than the agent's working tree.
+          # tests/ to /tests/ there. A separate verifier does NOT inherit
+          # the agent's filesystem changes on its own, but the top-level
+          # `artifacts` declaration above copies the agent's /workspace
+          # into this verifier first, so tests/test.sh grades the agent's
+          # actual working tree in place (its `origin` points at the
+          # GitHub sandbox and carries the pushed branch).
           [verifier]
           environment_mode = "separate"
 
@@ -206,12 +221,13 @@ module AgenticDevBench
           set -e
 
           # Harbor runs this verifier in a separate container (see task.toml
-          # [verifier] environment_mode = "separate"), but the agent's
-          # workspace volume is still mounted here, so we grade the agent's
-          # clone of the sandbox repository in place (its `origin` points at
-          # the GitHub sandbox and carries the pushed branch). WORKSPACE_DIR
-          # can override the location if it ever differs from the image's
-          # /workspace WORKDIR.
+          # [verifier] environment_mode = "separate"). The agent's workspace
+          # is copied into this verifier via the top-level `artifacts`
+          # declaration in task.toml (restored to its original /workspace
+          # path), so we grade the agent's clone of the sandbox repository
+          # in place (its `origin` points at the GitHub sandbox and carries
+          # the pushed branch). WORKSPACE_DIR can override the location if
+          # it ever differs from the image's /workspace WORKDIR.
           REPO_DIR="${WORKSPACE_DIR:-/workspace}"
           if ! git -C "$REPO_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
             echo "FAIL: $REPO_DIR is not a git workspace (set WORKSPACE_DIR to the agent workspace)" >&2
