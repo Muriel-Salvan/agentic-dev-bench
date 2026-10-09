@@ -37,6 +37,8 @@ module AgenticDevBench
     # are used to clone the sandbox repository and compute the diff.
     #
     # @param workspace [String] Path to the workspace directory to clean up.
+    # @param run_directory [String] Path to the run directory. The temporary
+    #   clone used to compute the diff is created inside it.
     # @param github_repository_url [String] The HTTPS URL of the sandbox repository.
     # @param original_commit [String] The SHA of the original commit that was pushed.
     # @param exit_code [Integer] The agent process exit status code.
@@ -44,9 +46,9 @@ module AgenticDevBench
     # @param finished_at [Time] The timestamp when the run finished.
     #
     # @return [Hash] A hash containing the collected metrics.
-    def self.collect(workspace:, github_repository_url:, original_commit:, exit_code:, started_at:, finished_at:)
+    def self.collect(workspace:, run_directory:, github_repository_url:, original_commit:, exit_code:, started_at:, finished_at:)
       Debug.debug("Collecting metrics for #{github_repository_url} @ #{original_commit}")
-      diff = compute_git_diff(github_repository_url: github_repository_url, original_commit: original_commit)
+      diff = compute_git_diff(github_repository_url: github_repository_url, original_commit: original_commit, run_directory: run_directory)
       Debug.debug("Diff stat bytes=#{diff.bytesize}; cleaning workspace #{workspace}")
       FileUtils.rm_rf(workspace)
       Debug.debug('Workspace cleaned')
@@ -70,12 +72,14 @@ module AgenticDevBench
     # @param github_repository_url [String] The HTTPS URL of the sandbox repository.
     #   The +GITHUB_TOKEN+ environment variable must be set to allow authenticated cloning.
     # @param original_commit [String] The SHA of the original commit.
+    # @param run_directory [String] Path to the run directory. The temporary
+    #   clone is created inside it (and kept there when debugging).
     #
     # @return [String] The diff stat output, or an empty string if the
     #   clone or checkout fails.
-    def self.compute_git_diff(github_repository_url:, original_commit:)
-      # Clone the GitHub sandbox repository into a temporary directory
-      temp_dir = Dir.mktmpdir('agentic-dev-bench-git')
+    def self.compute_git_diff(github_repository_url:, original_commit:, run_directory:)
+      # Clone the GitHub sandbox repository into a temporary directory inside the run directory
+      temp_dir = Dir.mktmpdir('agentic-dev-bench-git', run_directory)
       begin
         Debug.debug("Cloning sandbox for diff into #{temp_dir} (URL redacted)")
         github_url = github_repository_url.gsub('https://', 'https://x-access-token:' + ENV.fetch('GITHUB_TOKEN') + '@')
@@ -98,9 +102,13 @@ module AgenticDevBench
           return "#{stdout}#{stderr}".strip
         end
       ensure
-        # Clean up the temporary directory
-        Debug.debug("Removing diff temp dir #{temp_dir}")
-        FileUtils.rm_rf(temp_dir)
+        # Clean up the temporary directory, unless debugging (keep it for inspection)
+        if Debug.enabled?
+          Debug.debug("Keeping diff temp dir #{temp_dir}")
+        else
+          Debug.debug("Removing diff temp dir #{temp_dir}")
+          FileUtils.rm_rf(temp_dir)
+        end
       end
     end
   end

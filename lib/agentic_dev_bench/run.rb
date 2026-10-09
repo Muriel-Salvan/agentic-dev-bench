@@ -91,6 +91,7 @@ module AgenticDevBench
         Debug.debug("Collecting metrics...")
         metrics = Metrics.collect(
           workspace: workspace,
+          run_directory: @directory,
           github_repository_url: sandbox_info['repository_url'],
           original_commit: sandbox_info['original_commit'],
           exit_code: result.exit_code,
