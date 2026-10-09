@@ -108,7 +108,6 @@ module AgenticDevBench
       )
       File.write(
         File.join(task_dir, 'task.toml'),
-        # TODO: Use the "separate" evaluation mode to make sure the test files are not present in the agent's container and that Harbor's evaluation is done by another container.
         <<~TOML
           # Harbor task configuration
           language = "ruby"
@@ -132,7 +131,20 @@ module AgenticDevBench
           GIT_TERMINAL_PROMPT = "0"
           GH_PROMPT_DISABLED = "1"
 
-          # Verifier runs in the same sandbox; give it read access too.
+          # Run the verifier in a dedicated, separate container so the
+          # tests/ folder never lands in the agent's environment and
+          # grading is isolated from whatever the agent left in its own
+          # filesystem. Without a verifier-specific image or build
+          # definition, Harbor starts a fresh copy of the agent
+          # environment (built from environment/Dockerfile) and uploads
+          # tests/ to /tests/ there. The agent's filesystem changes are
+          # NOT inherited, so the verifier grades the sandbox GitHub
+          # repository (cloned fresh) rather than the agent's working tree.
+          [verifier]
+          environment_mode = "separate"
+
+          # The verifier clones the sandbox GitHub repository to grade the
+          # pushed branch, so give it read access too.
           [verifier.env]
           GH_TOKEN = "${AGENT_GITHUB_TOKEN}"
           GITHUB_TOKEN = "${AGENT_GITHUB_TOKEN}"
