@@ -191,6 +191,8 @@ module AgenticDevBench
             && git config --global --add credential.helper "!gh auth git-credential"
           ENV GIT_TERMINAL_PROMPT=0 GH_PROMPT_DISABLED=1 GCM_INTERACTIVE=never
 
+          # TODO: Git clone and checkout the main branch of the repository to work on.
+
           # Set the working directory inside the container
           WORKDIR /workspace
         DOCKERFILE
@@ -298,7 +300,14 @@ module AgenticDevBench
       # below (harbor shells out to docker for builds/runs).
       agent_name = @scenario.agent.fetch('name')
       model = @scenario.agent.fetch('model')
-      argv = ['harbor', 'run', '-p', task_dir, '-a', agent_name, '-m', model]
+      argv = [
+        'harbor', 'run',
+        '--yes',
+        '--path', task_dir,
+        '--agent', agent_name,
+        '--model', model,
+        '--jobs-dir', File.join(@workspace, 'jobs')
+      ]
       Debug.debug("Executing Harbor run with command: #{argv.inspect}")
       # Harbor interpolates [environment.env] ${VAR} references from this
       # process's environment, so export the resolved agent token under

@@ -70,7 +70,6 @@ module AgenticDevBench
 
       sandbox = GitHubSandbox.new(scenario: @scenario, run: self, keep: keep)
       begin
-        started_at = Time.now
         Debug.debug("Provisioning GitHub sandbox for #{@scenario.id}...")
         sandbox_info = sandbox.provision!
         Debug.debug("Sandbox provisioned: #{sandbox_info['repository_url']}")
@@ -84,6 +83,7 @@ module AgenticDevBench
         Debug.debug("Created workspace: #{workspace}")
 
         Debug.debug("Running Harbor agent for #{@scenario.id}...")
+        started_at = Time.now
         result = HarborRunner.new(scenario: @scenario, sandbox: sandbox_info, workspace: workspace).run!
         finished_at = Time.now
         Debug.debug("Harbor run finished with exit_code=#{result.exit_code}")
