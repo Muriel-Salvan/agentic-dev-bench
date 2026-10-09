@@ -17,6 +17,9 @@ This first scaffold uses [Harbor](https://github.com/harbor-framework/harbor), D
 bundle install
 export GITHUB_TOKEN=...
 export GITHUB_OWNER=your-github-user-or-org
+# Optional: least-privilege token handed to the agent container
+# (contents:write, pull-requests:write, issues:read). Falls back to GITHUB_TOKEN.
+export AGENT_GITHUB_TOKEN=...
 ```
 
 Before running the sample, replace the source repository and immutable commit in `scenarios/add-greeting.yml`. The sample task is intentionally a scaffold: use a repository whose language/test setup matches the requirements you want to benchmark.
@@ -58,3 +61,5 @@ The Harbor adapter is deliberately isolated because Harbor's CLI/API evolves. Th
 ## Security
 
 Use a dedicated GitHub account or GitHub App with minimum required permissions. Do not give an agent credentials that can access unrelated repositories.
+
+The agent container gets `AGENT_GITHUB_TOKEN` (or `GITHUB_TOKEN` as fallback) via Harbor `[environment.env]` interpolation at run time. The generated Dockerfile installs `git` + `gh` and wires `gh auth git-credential` as the git credential helper, but never bakes the token into image layers.

@@ -45,15 +45,28 @@ module AgenticDevBench
       # Redact credentials from a string before logging.
       #
       # Strips `x-access-token:...@`, `:password@`, and
-      # `?token=...` style secrets.
+      # `?token=...` style secrets, plus bare token values for known
+      # secret env vars and `KEY=secret` pairs.
       #
       # @param str [String] Raw string that may contain secrets.
+      # @param redactions [Array<String>] Extra secret plaintext values to
+      #   mask literally (longest first). The `GITHUB_TOKEN`, `GH_TOKEN`,
+      #   and `AGENT_GITHUB_TOKEN` env values are always included
+      #   automatically when present.
       # @return [String] Redacted string safe to log.
-      def redact(str)
+      def redact(str, redactions = [])
         s = str.to_s.dup
+        secrets = Array(redactions).map(&:to_s).reject(&:empty?)
+        secrets |= [ENV['GITHUB_TOKEN'], ENV['GH_TOKEN'], ENV['AGENT_GITHUB_TOKEN']].compact.reject(&:empty?)
+        secrets.sort_by(&:length).reverse.each do |secret|
+          s = s.gsub(secret, REDACTED)
+        end
         s.gsub!(%r{(x-access-token:)[^@\s'"]+@}i, '\1' + REDACTED + '@')
         s.gsub!(%r{(://)[^/\s:'"@]+:[^/\s:'"@]+@}i, '\1' + REDACTED + '@')
         s.gsub!(/([?&]token=)[^&\s'"]+/i, '\1' + REDACTED)
+        s.gsub!(/GITHUB_TOKEN["']?\s*(?:=>|:|=)\s*["']?[^"'\s,}]+/i, "GITHUB_TOKEN=[REDACTED]")
+        s.gsub!(/GH_TOKEN["']?\s*(?:=>|:|=)\s*["']?[^"'\s,}]+/i, "GH_TOKEN=[REDACTED]")
+        s.gsub!(/AGENT_GITHUB_TOKEN["']?\s*(?:=>|:|=)\s*["']?[^"'\s,}]+/i, "AGENT_GITHUB_TOKEN=[REDACTED]")
         s
       end
 
@@ -72,6 +85,9 @@ module AgenticDevBench
       # Accepts either `debug_exec(['git', 'status'])` or
       # `debug_exec('git', 'status')`. An optional leading Hash is treated
       # as env (merged with git trace env for git commands).
+      #
+      # All logging goes through {.redact} so token values passed via
+      # +env+ (e.g. GITHUB_TOKEN) never appear in plain text.
       #
       # @param cmd [Array<String>] The command and arguments to run.
       # @param opts [Hash] Options forwarded to Open3.capture3.

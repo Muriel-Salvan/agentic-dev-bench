@@ -99,10 +99,12 @@ module AgenticDevBench
         )
         Debug.debug("Collected metrics: #{metrics.inspect}")
 
-        File.write(File.join(@directory, 'stdout.log'), result.stdout)
-        File.write(File.join(@directory, 'stderr.log'), result.stderr)
-        File.write(File.join(@directory, 'result.yml'), metrics.to_yaml)
-        Debug.debug("Saved stdout.log, stderr.log, result.yml to #{@directory}")
+        results_dir = File.join(@directory, 'results')
+        FileUtils.mkdir_p(results_dir)
+        File.write(File.join(results_dir, 'stdout.log'), result.stdout)
+        File.write(File.join(results_dir, 'stderr.log'), result.stderr)
+        File.write(File.join(results_dir, 'result.yml'), metrics.to_yaml)
+        Debug.debug("Saved results to #{results_dir}")
 
         [@id, metrics]
       ensure
