@@ -203,12 +203,90 @@ module AgenticDevBench
           #!/bin/bash
           set -e
 
-          # TODO: Check that a new branch has been created and pushed on the origin remote with at least 1 commit. Exit 1 with a proper message if that's not the case.
-          # TODO: Check that the diff of the branch against main is modifying at least 1 file from ./lib and 1 file from ./spec. Exit 1 with a proper message if that's not the case.
-          # TODO: Run bundle install and bundle exec rspec. If there are some failures, exit 1 with a proper message.
-          # TODO: Execute the small Ruby script from scenario.evaluation['ruby'] with `bundle exec`. Exit 1 with a proper message if this script exits with non zero code.
+          # Harbor runs this verifier in a separate container (see task.toml
+          # [verifier] environment_mode = "separate"), but the agent's
+          # workspace volume is still mounted here, so we grade the agent's
+          # clone of the sandbox repository in place (its `origin` points at
+          # the GitHub sandbox and carries the pushed branch). WORKSPACE_DIR
+          # can override the location if it ever differs from the image's
+          # /workspace WORKDIR.
+          REPO_DIR="${WORKSPACE_DIR:-/workspace}"
+          if ! git -C "$REPO_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            echo "FAIL: $REPO_DIR is not a git workspace (set WORKSPACE_DIR to the agent workspace)" >&2
+            exit 1
+          fi
+          cd "$REPO_DIR"
 
-          echo "PASS: greeting helper works correctly"
+          BASE_BRANCH="main"
+
+          fail() {
+            echo "FAIL: $1" >&2
+            exit 1
+          }
+
+          # Refresh origin's view of the pushed branches. Non-fatal: if the
+          # remote is unreachable we fall back to the remote-tracking refs
+          # already present in the workspace clone.
+          if ! git fetch --prune origin "+refs/heads/*:refs/remotes/origin/*" 2>/tmp/adb_fetch_err; then
+            echo "WARN: could not refresh origin ($(head -n1 /tmp/adb_fetch_err 2>/dev/null)); using existing remote-tracking refs" >&2
+          fi
+
+          # Check that a new branch (anything other than the base branch) has
+          # been pushed to origin.
+          FEATURE_BRANCHES="$(git for-each-ref --format="%(refname:strip=3)" refs/remotes/origin | grep -vx "$BASE_BRANCH" | grep -vx "HEAD" || true)"
+          if [ -z "$FEATURE_BRANCHES" ]; then
+            fail "no new branch was pushed to origin (expected a branch other than $BASE_BRANCH)"
+          fi
+
+          # ...and that it carries at least one commit beyond the base branch.
+          FEATURE_BRANCH=""
+          for candidate in $FEATURE_BRANCHES; do
+            ahead="$(git rev-list --count "origin/$BASE_BRANCH..origin/$candidate" 2>/dev/null || echo 0)"
+            if [ "$ahead" -ge 1 ]; then
+              FEATURE_BRANCH="$candidate"
+              break
+            fi
+          done
+          if [ -z "$FEATURE_BRANCH" ]; then
+            fail "no pushed branch contains at least 1 commit beyond $BASE_BRANCH"
+          fi
+          echo "PASS: feature branch $FEATURE_BRANCH pushed to origin with $(git rev-list --count "origin/$BASE_BRANCH..origin/$FEATURE_BRANCH") commit(s) beyond $BASE_BRANCH"
+
+          # Check that the branch diff against the base branch modifies at
+          # least one file under ./lib and one under ./spec.
+          CHANGED_FILES="$(git diff --name-only "origin/$BASE_BRANCH" "origin/$FEATURE_BRANCH")"
+          if ! grep -q "^lib/" <<< "$CHANGED_FILES"; then
+            fail "branch $FEATURE_BRANCH does not modify any file under ./lib"
+          fi
+          if ! grep -q "^spec/" <<< "$CHANGED_FILES"; then
+            fail "branch $FEATURE_BRANCH does not modify any file under ./spec"
+          fi
+          echo "PASS: branch $FEATURE_BRANCH modifies files under ./lib and ./spec"
+
+          # Grade the code the agent actually pushed.
+          git checkout --quiet -f -B "$FEATURE_BRANCH" "origin/$FEATURE_BRANCH"
+
+          # Install dependencies and run the test suite.
+          if ! bundle install; then
+            fail "bundle install failed"
+          fi
+          if ! bundle exec rspec; then
+            fail "bundle exec rspec reported failures"
+          fi
+          echo "PASS: bundle exec rspec succeeded"
+
+          # Execute the scenario's evaluation Ruby snippet with bundler.
+          EVAL_FILE="$(mktemp)"
+          cat > "$EVAL_FILE" <<'AGENTIC_EVAL_EOF'
+          #{@scenario.evaluation['ruby']}
+          AGENTIC_EVAL_EOF
+          if ! bundle exec ruby "$EVAL_FILE"; then
+            fail "scenario evaluation script exited with a non-zero status"
+          fi
+          echo "PASS: scenario evaluation script succeeded"
+
+          echo "PASS: all verification checks succeeded"
+          exit 0
         BASH
       )
       File.chmod(0o755, test_file)
