@@ -206,12 +206,64 @@ module AgenticDevBench
             && git config --global --add credential.helper "!gh auth git-credential"
           ENV GIT_TERMINAL_PROMPT=0 GH_PROMPT_DISABLED=1 GCM_INTERACTIVE=never
 
-          # TODO: Git clone and checkout the main branch of the repository to work on.
+          # Clone the sandbox repository at container start (run time), NOT at
+          # build time: the GitHub token is injected only via [environment.env]
+          # at run time and the sandbox repo is private, so a build-time clone
+          # is impossible and would risk baking credentials into image layers.
+          # entrypoint.sh performs the authenticated clone once GH_TOKEN /
+          # GITHUB_TOKEN are available (the image wires `gh auth git-credential`
+          # as the git credential helper). The repository URL is not secret.
+          COPY entrypoint.sh /usr/local/bin/adb-entrypoint.sh
+          RUN chmod +x /usr/local/bin/adb-entrypoint.sh
+          ENV REPO_URL="#{@sandbox['repository_url']}" BASE_BRANCH="main"
 
           # Set the working directory inside the container
           WORKDIR /workspace
+
+          # Harbor overrides the image CMD (`sh -c "sleep infinity"`) but honors
+          # ENTRYPOINT, so adb-entrypoint.sh runs the clone first, then hands
+          # off via `exec "$@"` to keep the container alive for the agent.
+          ENTRYPOINT ["/usr/local/bin/adb-entrypoint.sh"]
         DOCKERFILE
       )
+      entrypoint_file = File.join(env_dir, 'entrypoint.sh')
+      File.write(
+        entrypoint_file,
+        <<~BASH
+          #!/bin/sh
+          set -eu
+
+          # Harbor task environment entrypoint.
+          #
+          # The GitHub token is injected only at run time via task.toml
+          # [environment.env] (never baked into image layers) and the sandbox
+          # repository is private, so a build-time `git clone` cannot work. We
+          # clone here, at container start, when GH_TOKEN/GITHUB_TOKEN are
+          # present and the `gh auth git-credential` helper (configured in the
+          # Dockerfile) authenticates headlessly.
+          #
+          # Harbor starts the container with `sh -c "sleep infinity"`; this
+          # ENTRYPOINT prepares /workspace first, then `exec "$@"` hands off to
+          # that command so the container stays alive for the agent.
+          REPO_URL="${REPO_URL:?REPO_URL must be set}"
+          BASE_BRANCH="${BASE_BRANCH:-main}"
+          WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
+
+          if [ ! -d "$WORKSPACE_DIR/.git" ]; then
+            echo "Cloning $REPO_URL into $WORKSPACE_DIR (branch: $BASE_BRANCH)"
+            rm -rf "$WORKSPACE_DIR"
+            git clone "$REPO_URL" "$WORKSPACE_DIR"
+            git -C "$WORKSPACE_DIR" checkout "$BASE_BRANCH"
+          else
+            # Idempotent: Harbor restores the agent's /workspace into the
+            # verifier before tests run, so an existing checkout is left as-is.
+            echo "$WORKSPACE_DIR already contains a git checkout; leaving it in place"
+          fi
+
+          exec "$@"
+        BASH
+      )
+      File.chmod(0o755, entrypoint_file)
       test_file = File.join(task_dir, 'tests', 'test.sh')
       FileUtils.mkdir_p(File.dirname(test_file))
       File.write(
