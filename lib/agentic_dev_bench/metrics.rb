@@ -49,9 +49,7 @@ module AgenticDevBench
     def self.collect(workspace:, run_directory:, github_repository_url:, original_commit:, exit_code:, started_at:, finished_at:)
       Debug.debug("Collecting metrics for #{github_repository_url} @ #{original_commit}")
       diff = compute_git_diff(github_repository_url: github_repository_url, original_commit: original_commit, run_directory: run_directory)
-      Debug.debug("Diff stat bytes=#{diff.bytesize}; cleaning workspace #{workspace}")
-      FileUtils.rm_rf(workspace)
-      Debug.debug('Workspace cleaned')
+      Debug.debug("Diff stat bytes=#{diff.bytesize}")
 
       {
         'exit_code' => exit_code,

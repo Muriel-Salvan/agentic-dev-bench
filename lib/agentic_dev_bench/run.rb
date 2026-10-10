@@ -80,32 +80,41 @@ module AgenticDevBench
 
         workspace = File.join(@directory, 'workspace')
         FileUtils.mkdir_p(workspace)
-        Debug.debug("Created workspace: #{workspace}")
+        begin
+          Debug.debug("Created workspace: #{workspace}")
 
-        Debug.debug("Running Harbor agent for #{@scenario.id}...")
-        started_at = Time.now
-        result = HarborRunner.new(scenario: @scenario, sandbox: sandbox_info, workspace: workspace).run!
-        finished_at = Time.now
-        Debug.debug("Harbor run finished with exit_code=#{result.exit_code}")
+          Debug.debug("Running Harbor agent for #{@scenario.id}...")
+          started_at = Time.now
+          result = HarborRunner.new(scenario: @scenario, sandbox: sandbox_info, workspace: workspace).run!
+          finished_at = Time.now
+          Debug.debug("Harbor run finished with exit_code=#{result.exit_code}")
 
-        Debug.debug("Collecting metrics...")
-        metrics = Metrics.collect(
-          workspace: workspace,
-          run_directory: @directory,
-          github_repository_url: sandbox_info['repository_url'],
-          original_commit: sandbox_info['original_commit'],
-          exit_code: result.exit_code,
-          started_at: started_at,
-          finished_at: finished_at
-        )
-        Debug.debug("Collected metrics: #{metrics.inspect}")
+          Debug.debug("Collecting metrics...")
+          metrics = Metrics.collect(
+            workspace: workspace,
+            run_directory: @directory,
+            github_repository_url: sandbox_info['repository_url'],
+            original_commit: sandbox_info['original_commit'],
+            exit_code: result.exit_code,
+            started_at: started_at,
+            finished_at: finished_at
+          )
+          Debug.debug("Collected metrics: #{metrics.inspect}")
 
-        results_dir = File.join(@directory, 'results')
-        FileUtils.mkdir_p(results_dir)
-        File.write(File.join(results_dir, 'stdout.log'), result.stdout)
-        File.write(File.join(results_dir, 'stderr.log'), result.stderr)
-        File.write(File.join(results_dir, 'result.yml'), metrics.to_yaml)
-        Debug.debug("Saved results to #{results_dir}")
+          results_dir = File.join(@directory, 'results')
+          FileUtils.mkdir_p(results_dir)
+          File.write(File.join(results_dir, 'stdout.log'), result.stdout)
+          File.write(File.join(results_dir, 'stderr.log'), result.stderr)
+          File.write(File.join(results_dir, 'result.yml'), metrics.to_yaml)
+          Debug.debug("Saved results to #{results_dir}")
+        ensure
+          if Debug.enabled?
+            Debug.debug('Workspace kept for debugging')
+          else
+            FileUtils.rm_rf(workspace)
+            Debug.debug('Workspace cleaned')
+          end
+        end
 
         [@id, metrics]
       ensure

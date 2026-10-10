@@ -249,11 +249,32 @@ module AgenticDevBench
           BASE_BRANCH="${BASE_BRANCH:-main}"
           WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 
+          # Fail loudly instead of letting `set -e` kill the container with an
+          # opaque status (which Harbor surfaces only as
+          # `docker compose ... exited (255)` -> RuntimeError). Capture git's
+          # real output to a log AND stderr so it lands in `docker logs` and in
+          # Harbor's exception output. NOTE: this is /bin/sh (dash, no
+          # pipefail), so we capture via a temp file rather than a pipeline
+          # (a pipeline would mask git's non-zero exit code).
           if [ ! -d "$WORKSPACE_DIR/.git" ]; then
             echo "Cloning $REPO_URL into $WORKSPACE_DIR (branch: $BASE_BRANCH)"
             rm -rf "$WORKSPACE_DIR"
-            git clone "$REPO_URL" "$WORKSPACE_DIR"
-            git -C "$WORKSPACE_DIR" checkout "$BASE_BRANCH"
+            clone_log="$(mktemp)"
+            if git clone "$REPO_URL" "$WORKSPACE_DIR" >"$clone_log" 2>&1; then
+              cat "$clone_log"
+              rm -f "$clone_log"
+              git -C "$WORKSPACE_DIR" checkout "$BASE_BRANCH"
+            else
+              clone_status=$?
+              echo "adb-entrypoint: ERROR: 'git clone $REPO_URL' failed (exit $clone_status)." >&2
+              echo "adb-entrypoint: This is almost always an auth or network problem. Verify that:" >&2
+              echo "adb-entrypoint:   * AGENT_GITHUB_TOKEN / GH_TOKEN is set, valid, and not expired," >&2
+              echo "adb-entrypoint:   * it has contents:read on this PRIVATE sandbox repo, and" >&2
+              echo "adb-entrypoint:   * this container has network egress to github.com." >&2
+              echo "adb-entrypoint: --- git output follows ---" >&2
+              cat "$clone_log" >&2
+              exit "$clone_status"
+            fi
           else
             # Idempotent: Harbor restores the agent's /workspace into the
             # verifier before tests run, so an existing checkout is left as-is.

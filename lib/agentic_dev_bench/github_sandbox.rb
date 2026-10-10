@@ -96,7 +96,7 @@ module AgenticDevBench
         with_git_trace { git.push('origin', 'HEAD:refs/heads/main') }
         Debug.debug('Push completed')
       ensure
-        if @keep
+        if Debug.enabled?
           Debug.debug("Keeping temporary clone directory #{dir}")
         else
           FileUtils.rm_rf(dir)
