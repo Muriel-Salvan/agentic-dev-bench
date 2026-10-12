@@ -27,4 +27,4 @@ agent:
   model: cline:cline-free/muse-spark-1.3-contributor
 
 evaluation:
-  ruby: "require 'cline' ; exit(Cline::Config.greeting == 'Hello, world!' ? 0 : 1)"
+  ruby: "require 'cline' ; exit(Cline.config.greeting == 'Hello, world!' ? 0 : 1)"

@@ -337,6 +337,17 @@ module AgenticDevBench
           #!/bin/bash
           set -e
 
+          # Harbor reward contract: after tests run, Harbor's verifier
+          # downloads /logs/verifier/ to <trial>/verifier/ and requires
+          # reward.txt (a finite float) or reward.json there, else it
+          # raises RewardFileNotFoundError. Default to failure (0) up
+          # front so every exit path below -- including `set -e` aborts
+          # and early `exit 1`s -- leaves a parseable reward behind.
+          REWARD_FILE="/logs/verifier/reward.txt"
+          mkdir -p "$(dirname "$REWARD_FILE")"
+          printf '0\n' > "$REWARD_FILE"
+          trap 'printf "0\n" > "$REWARD_FILE" 2>/dev/null || true' ERR
+
           # Harbor runs this verifier in a separate container (see task.toml
           # [verifier] environment_mode = "separate"). The agent's workspace
           # is copied into this verifier via the top-level `artifacts`
@@ -348,6 +359,7 @@ module AgenticDevBench
           REPO_DIR="${WORKSPACE_DIR:-/workspace}"
           if ! git -C "$REPO_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
             echo "FAIL: $REPO_DIR is not a git workspace (set WORKSPACE_DIR to the agent workspace)" >&2
+            printf '0\n' > "$REWARD_FILE" 2>/dev/null || true
             exit 1
           fi
           cd "$REPO_DIR"
@@ -356,6 +368,7 @@ module AgenticDevBench
 
           fail() {
             echo "FAIL: $1" >&2
+            printf '0\n' > "$REWARD_FILE" 2>/dev/null || true
             exit 1
           }
 
@@ -421,6 +434,7 @@ module AgenticDevBench
           echo "PASS: scenario evaluation script succeeded"
 
           echo "PASS: all verification checks succeeded"
+          printf '1\n' > "$REWARD_FILE"
           exit 0
         BASH
       )
