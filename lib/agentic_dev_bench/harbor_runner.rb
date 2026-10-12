@@ -464,7 +464,18 @@ module AgenticDevBench
       # Values are redacted by Debug; never interpolate the token into
       # argv, task.toml, or instruction.md.
       agent_token = self.class.agent_token
-      harbor_env = { AGENT_TOKEN_ENV => agent_token }
+      harbor_env = {
+        AGENT_TOKEN_ENV => agent_token,
+        # Force UTF-8 mode: Harbor's secret scrubber calls Path.read_text()
+        # without an encoding, which defaults to cp1252 on Windows and turns
+        # valid UTF-8 (e.g. emoji in agent output) into
+        # "'charmap' codec can't decode byte 0x90" skips. PYTHONUTF8=1 makes
+        # open()/read_text() default to UTF-8; PYTHONIOENCODING keeps Harbor's
+        # own stdout/stderr UTF-8 through our Open3 pipes. Always set (not
+        # debug-only) because scrubbing runs on every `harbor run`.
+        'PYTHONUTF8' => '1',
+        'PYTHONIOENCODING' => 'utf-8'
+      }
       harbor_env['GH_TOKEN'] = ENV['GH_TOKEN'] unless ENV['GH_TOKEN'].nil? || ENV['GH_TOKEN'].empty?
       Debug.debug("GitHub token source: #{ENV[AGENT_TOKEN_ENV].nil? || ENV[AGENT_TOKEN_ENV].empty? ? FALLBACK_TOKEN_ENV : AGENT_TOKEN_ENV} (value redacted)")
       env = harbor_env
