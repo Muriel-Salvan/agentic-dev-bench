@@ -273,6 +273,12 @@ module AgenticDevBench
           # Harbor's exception output.
           if [ ! -d "$WORKSPACE_DIR/.git" ]; then
             adb_note "Cloning $REPO_URL into $WORKSPACE_DIR (branch: $BASE_BRANCH)"
+            # The image sets WORKDIR to /workspace, so this process starts
+            # with its cwd inside the directory we are about to delete.
+            # `rm -rf` on the cwd leaves getcwd() failing and `git clone`
+            # aborts with `fatal: Unable to read current working directory`
+            # (exit 128). Step out first so the clone has a valid cwd.
+            cd /
             rm -rf "$WORKSPACE_DIR"
             clone_log="$(mktemp)"
             if git clone "$REPO_URL" "$WORKSPACE_DIR" >"$clone_log" 2>&1; then
@@ -291,6 +297,9 @@ module AgenticDevBench
                 exit "$checkout_status"
               fi
               rm -f "$checkout_log"
+              # Restore the image's WORKDIR semantics for the handed-off
+              # command (we stepped out to /tmp before rm -rf above).
+              cd "$WORKSPACE_DIR" 2>/dev/null || true
             else
               clone_status=$?
               adb_err "adb-entrypoint: ERROR: 'git clone $REPO_URL' failed (exit $clone_status)."
@@ -301,6 +310,10 @@ module AgenticDevBench
               adb_err "adb-entrypoint: --- git output follows ---"
               cat "$clone_log" >&2 || true
               cat "$clone_log" >>"$ADB_LOG" 2>/dev/null || true
+              # Recreate the (deleted) workspace dir so Harbor's
+              # best-effort `docker cp /workspace` artifact step finds an
+              # (empty) path instead of `Could not find the file`.
+              mkdir -p "$WORKSPACE_DIR" 2>/dev/null || true
               exit "$clone_status"
             fi
           else
