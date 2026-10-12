@@ -32,7 +32,7 @@ bundle exec bin/agentic-dev-bench execute add-greeting
 bundle exec bin/agentic-dev-bench execute add-greeting --keep
 ```
 
-Runs are stored below `runs/` and include the sandbox metadata, Harbor stdout/stderr, and `result.yml`. Successful runs are cleaned up automatically; `--keep` preserves the sandbox for inspection.
+Runs are stored below `runs/` and include the sandbox metadata, Harbor stdout/stderr, `result.yml` (scalar metrics plus the diff `--stat`), and `git_diff.patch` (full unified diff of the pushed branch). Successful runs are cleaned up automatically; `--keep` preserves the sandbox for inspection.
 
 ## Design
 

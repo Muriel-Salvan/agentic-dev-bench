@@ -20,15 +20,23 @@ module AgenticDevBench
   # Executes a benchmark scenario.
   #
   #   $ bundle exec bin/agentic-dev-bench execute add-greeting
-  #   +-----------+--------------------------------+
-  #   | Metric    | Value                          |
-  #   +-----------+--------------------------------+
-  #   | exit_code | 0                              |
-  #   | success   | true                           |
-  #   | elapsed_seconds | 12.345                   |
-  #   | git_diff_stat | +10 -2                    |
-  #   +-----------+--------------------------------+
+  #   +-----------+---------------------------+
+  #   | Metric    | Value                     |
+  #   +-----------+---------------------------+
+  #   | exit_code | 0                         |
+  #   | success   | true                      |
+  #   | ...       | ...                       |
+  #   +-----------+---------------------------+
+  #   --- git diff --stat ---
+  #   Branch: origin/feature/add-greeting-helper (1 commit(s) ahead)
+  #   lib/cline/config.rb | 7 +++++++
+  #    1 file changed, 7 insertions(+)
+  #   Full patch: runs/20261007T120000Z-3f9a2b1c/results/git_diff.patch
   #   Run: runs/20261007T120000Z-3f9a2b1c
+  #
+  # Scalar metrics (exit code, branch, commit/file counts) render in the
+  # table; the multi-line diff --stat prints verbatim below it, and the
+  # full unified diff is saved to results/git_diff.patch.
   #
   # With the +--keep+ option, the GitHub sandbox is preserved after the run:
   #
@@ -78,10 +86,22 @@ module AgenticDevBench
       Debug.debug("Executing scenario #{scenario.id} (#{scenario.name})")
       Debug.debug("Options: keep=#{options[:keep]} debug=#{options[:debug]}")
       run_id, result = Run.new(scenario).execute!(keep: options[:keep])
+      # Multi-line values (git_diff_stat) mangle TTY::Table columns, so
+      # keep the table to single-line scalars and print the diff verbatim
+      # below. Full unified diff lives in runs/<id>/results/git_diff.patch.
+      scalar, multiline = result.partition { |key, _| key != 'git_diff_stat' }
       puts TTY::Table.new(
         header: %w[Metric Value],
-        rows: result.map { |key, value| [key, value] }
+        rows: scalar.map { |key, value| [key, value] }
       )
+      stat = multiline.to_h['git_diff_stat'].to_s
+      if stat.empty?
+        puts 'git diff: (no pushed feature branch)'
+      else
+        puts '--- git diff --stat ---'
+        puts stat
+      end
+      puts "Full patch: runs/#{run_id}/results/git_diff.patch"
       puts "Run: runs/#{run_id}"
     end
   end

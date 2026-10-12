@@ -91,7 +91,7 @@ module AgenticDevBench
           log_harbor_failure_details(workspace) if Debug.enabled? && !result.exit_code.zero?
 
           Debug.debug("Collecting metrics...")
-          metrics = Metrics.collect(
+          metrics, patch = Metrics.collect(
             workspace: workspace,
             run_directory: @directory,
             github_repository_url: sandbox_info['repository_url'],
@@ -107,7 +107,10 @@ module AgenticDevBench
           File.write(File.join(results_dir, 'stdout.log'), result.stdout)
           File.write(File.join(results_dir, 'stderr.log'), result.stderr)
           File.write(File.join(results_dir, 'result.yml'), metrics.to_yaml)
-          Debug.debug("Saved results to #{results_dir}")
+          # Full unified diff kept out of result.yml (multi-KB noise there);
+          # saved alongside for inspection. Empty when no branch was pushed.
+          File.write(File.join(results_dir, 'git_diff.patch'), patch)
+          Debug.debug("Saved results to #{results_dir} (patch bytes=#{patch.bytesize})")
         ensure
           if Debug.enabled?
             Debug.debug('Workspace kept for debugging')

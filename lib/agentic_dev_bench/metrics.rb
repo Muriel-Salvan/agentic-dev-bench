@@ -5,14 +5,14 @@ module AgenticDevBench
   # measures:
   # * Exit code (success/failure flag)
   # * Elapsed time of the run
-  # * Git diff statistics between the original commit and the final
-  #   HEAD of the sandbox repository
+  # * Pushed feature branch(es) vs the sandbox base, with per-branch
+  #   commit counts, file lists, and diff --stat summaries
   #
   # The workspace directory is removed after metrics collection.
   #
   # == Example
   #
-  #   metrics = AgenticDevBench::Metrics.collect(
+  #   metrics, patch = AgenticDevBench::Metrics.collect(
   #     workspace: workspace_path,
   #     github_repository_url: repo_url,
   #     original_commit: original_sha,
@@ -20,16 +20,24 @@ module AgenticDevBench
   #     started_at: started_time,
   #     finished_at: finished_time
   #   )
-  #   # => { "exit_code" => 0, "success" => true, ... }
+  #   # => [{ "exit_code" => 0, "success" => true, ... }, "...patch..."]
   #
   class Metrics
+    # Base branch of every sandbox repository (see GitHubSandbox#provision!,
+    # which pushes the pinned commit to refs/heads/main).
+    BASE_BRANCH = 'main'
+
     # Collects metrics from a completed benchmark run.
     #
     # Computes the following metrics:
     # * +exit_code+ - The integer exit code from the Harbor run.
     # * +success+ - Boolean, +true+ if +exit_code+ is 0.
     # * +elapsed_seconds+ - The duration of the run in seconds (rounded to 3 decimal places).
-    # * +git_diff_stat+ - The git diff --stat output showing changes made to the repository.
+    # * +feature_branch+ - Name of the pushed feature branch (empty when none).
+    # * +feature_branches+ - All pushed branches ahead of the base (comma-separated).
+    # * +commits_ahead+ - Number of commits on the feature branch beyond the base.
+    # * +files_changed+ - Number of files changed on the feature branch vs the base.
+    # * +git_diff_stat+ - The git diff --stat output for the pushed branch(es).
     #
     # After collection, the +workspace+ directory is deleted.
     #
@@ -45,27 +53,41 @@ module AgenticDevBench
     # @param started_at [Time] The timestamp when the run started.
     # @param finished_at [Time] The timestamp when the run finished.
     #
-    # @return [Hash] A hash containing the collected metrics.
+    # @return [Array<Hash, String>] A 2-element array:
+    #   * [0] [Hash] The collected metrics (YAML-safe scalars only).
+    #   * [1] [String] The full unified diff (empty when no branch was pushed).
     def self.collect(workspace:, run_directory:, github_repository_url:, original_commit:, exit_code:, started_at:, finished_at:)
       Debug.debug("Collecting metrics for #{github_repository_url} @ #{original_commit}")
-      diff = compute_git_diff(github_repository_url: github_repository_url, original_commit: original_commit, run_directory: run_directory)
-      Debug.debug("Diff stat bytes=#{diff.bytesize}")
+      diff_info = compute_git_diff(github_repository_url: github_repository_url, original_commit: original_commit, run_directory: run_directory)
+      Debug.debug("Diff stat bytes=#{diff_info[:stat].bytesize} patch bytes=#{diff_info[:patch].bytesize}")
 
-      {
+      metrics = {
         'exit_code' => exit_code,
         'success' => exit_code.zero?,
         'elapsed_seconds' => (finished_at - started_at).round(3),
-        'git_diff_stat' => diff.strip
+        'feature_branch' => diff_info[:primary_branch],
+        'feature_branches' => diff_info[:branches].join(', '),
+        'commits_ahead' => diff_info[:commits_ahead],
+        'files_changed' => diff_info[:files_changed],
+        'git_diff_stat' => diff_info[:stat].strip
       }
+      [metrics, diff_info[:patch]]
     end
 
     private
 
-    # Computes the git diff statistics for the sandbox repository.
+    # Computes the git diff for branches the agent pushed to the sandbox.
     #
-    # Clones the repository into a temporary directory, checks out the
-    # original commit, and runs +git diff --stat+ against HEAD to show
-    # all changes made by the agent.
+    # The agent is instructed to work on a new feature branch (see the
+    # Harbor instruction.md), and the verifier grades
+    # <tt>origin/main..origin/&lt;feature&gt;</tt>. So instead of diffing
+    # the base commit against a detached HEAD (which is always empty),
+    # this clones the sandbox, refreshes all remote branches, and diffs
+    # each pushed branch ahead of the base commit.
+    #
+    # Git's own trace output (GIT_TRACE) is suppressed for these calls so
+    # debug mode cannot leak into the metric; stderr is only debug-logged
+    # (redacted), never embedded in the returned strings.
     #
     # @param github_repository_url [String] The HTTPS URL of the sandbox repository.
     #   The +GITHUB_TOKEN+ environment variable must be set to allow authenticated cloning.
@@ -73,31 +95,40 @@ module AgenticDevBench
     # @param run_directory [String] Path to the run directory. The temporary
     #   clone is created inside it (and kept there when debugging).
     #
-    # @return [String] The diff stat output, or an empty string if the
-    #   clone or checkout fails.
+    # @return [Hash] A hash with +:branches+, +:primary_branch+,
+    #   +:commits_ahead+, +:files_changed+, +:stat+, and +:patch+.
     def self.compute_git_diff(github_repository_url:, original_commit:, run_directory:)
+      empty = { branches: [], primary_branch: '', commits_ahead: 0, files_changed: 0, stat: '', patch: '' }
       # Clone the GitHub sandbox repository into a temporary directory inside the run directory
       temp_dir = Dir.mktmpdir('agentic-dev-bench-git', run_directory)
       begin
         Debug.debug("Cloning sandbox for diff into #{temp_dir} (URL redacted)")
         github_url = github_repository_url.gsub('https://', 'https://x-access-token:' + ENV.fetch('GITHUB_TOKEN') + '@')
 
-        # Clone the repository (git's own trace goes to stderr when --debug)
-        _stdout, stderr, status = Debug.debug_exec('git', 'clone', '--quiet', github_url, temp_dir)
+        # Clone the repository (git's own trace suppressed: stderr must stay clean)
+        _stdout, stderr, status = Debug.debug_exec('git', 'clone', '--quiet', github_url, temp_dir, git_trace: false)
         unless status.success?
           warn "git clone failed: #{Debug.redact(stderr)}"
-          return ''
+          return empty
         end
         Debug.debug('Sandbox clone for diff succeeded')
 
-        # Checkout the original commit and compute the diff against HEAD
         Dir.chdir(temp_dir) do
-          Debug.debug("Checking out original commit #{original_commit} for diff")
-          return '' unless Debug.debug_system('git', 'checkout', '--quiet', original_commit)
+          Debug.debug('Refreshing remote branches for diff')
+          _fetch_stdout, fetch_stderr, _fetch_status = Debug.debug_exec(
+            'git', 'fetch', '--prune', 'origin', '+refs/heads/*:refs/remotes/origin/*', git_trace: false
+          )
+          Debug.debug("Fetch stderr: #{Debug.redact(fetch_stderr.strip)}") unless fetch_stderr.strip.empty?
 
-          Debug.debug("Computing git diff --stat #{original_commit}..HEAD")
-          stdout, stderr, _status = Debug.debug_exec('git', 'diff', '--stat', original_commit, 'HEAD')
-          return "#{stdout}#{stderr}".strip
+          branches = pushed_feature_branches(original_commit: original_commit)
+          branches = ['main'] if branches.empty? && main_ahead?(original_commit: original_commit)
+          if branches.empty?
+            Debug.debug('No pushed feature branch found; diff is empty')
+            return empty
+          end
+          Debug.debug("Pushed feature branches: #{branches.inspect}")
+
+          build_branch_diffs(branches: branches, original_commit: original_commit)
         end
       ensure
         # Clean up the temporary directory, unless debugging (keep it for inspection)
@@ -108,6 +139,106 @@ module AgenticDevBench
           FileUtils.rm_rf(temp_dir)
         end
       end
+    end
+
+    # Lists remote branches carrying at least one commit beyond the base.
+    #
+    # Mirrors the verifier logic in tests/test.sh: enumerate
+    # <tt>refs/remotes/origin</tt> (excluding main/HEAD), keep branches
+    # with <tt>rev-list --count base..branch >= 1</tt>.
+    #
+    # @param original_commit [String] The base SHA pushed at provisioning time.
+    #
+    # @return [Array<String>] Sorted branch names ahead of the base.
+    def self.pushed_feature_branches(original_commit:)
+      stdout, stderr, _status = Debug.debug_exec(
+        'git', 'for-each-ref', '--format=%(refname:strip=3)', 'refs/remotes/origin', git_trace: false
+      )
+      Debug.debug("for-each-ref stderr: #{Debug.redact(stderr.strip)}") unless stderr.strip.empty?
+      candidates = stdout.lines.map(&:strip).reject(&:empty?) - [BASE_BRANCH, 'HEAD']
+      candidates.select do |branch|
+        count_stdout, count_stderr, _count_status = Debug.debug_exec(
+          'git', 'rev-list', '--count', "#{original_commit}..origin/#{branch}", git_trace: false
+        )
+        unless count_stderr.strip.empty?
+          Debug.debug("rev-list stderr (#{branch}): #{Debug.redact(count_stderr.strip)}")
+        end
+        count_stdout.strip.to_i >= 1
+      end.sort
+    end
+
+    # Reports whether main itself advanced beyond the base commit.
+    #
+    # The verifier demands a separate feature branch, so a direct push to
+    # main is still a failure — but surfacing its diff beats an empty
+    # metric when diagnosing such runs.
+    #
+    # @param original_commit [String] The base SHA pushed at provisioning time.
+    #
+    # @return [Boolean] True when origin/main is ahead of the base.
+    def self.main_ahead?(original_commit:)
+      count_stdout, count_stderr, _status = Debug.debug_exec(
+        'git', 'rev-list', '--count', "#{original_commit}..origin/#{BASE_BRANCH}", git_trace: false
+      )
+      unless count_stderr.strip.empty?
+        Debug.debug("rev-list stderr (#{BASE_BRANCH}): #{Debug.redact(count_stderr.strip)}")
+      end
+      count_stdout.strip.to_i >= 1
+    end
+
+    # Builds per-branch diff --stat sections plus a combined unified patch.
+    #
+    # @param branches [Array<String>] Pushed branches ahead of the base (sorted).
+    # @param original_commit [String] The base SHA pushed at provisioning time.
+    #
+    # @return [Hash] Same shape as {.compute_git_diff} (never the empty sentinel).
+    def self.build_branch_diffs(branches:, original_commit:)
+      stat_sections = []
+      patches = []
+      total_files = 0
+      primary_ahead = 0
+
+      branches.each_with_index do |branch, index|
+        Debug.debug("Computing git diff --stat #{original_commit}..origin/#{branch}")
+        stat_stdout, stat_stderr, _stat_status = Debug.debug_exec(
+          'git', 'diff', '--stat', original_commit, "origin/#{branch}", git_trace: false
+        )
+        unless stat_stderr.strip.empty?
+          Debug.debug("diff --stat stderr (#{branch}): #{Debug.redact(stat_stderr.strip)}")
+        end
+
+        count_stdout, _count_stderr, _count_status = Debug.debug_exec(
+          'git', 'rev-list', '--count', "#{original_commit}..origin/#{branch}", git_trace: false
+        )
+        ahead = count_stdout.strip.to_i
+        primary_ahead = ahead if index.zero?
+
+        files_stdout, _files_stderr, _files_status = Debug.debug_exec(
+          'git', 'diff', '--name-only', original_commit, "origin/#{branch}", git_trace: false
+        )
+        file_count = files_stdout.lines.map(&:strip).reject(&:empty?).length
+        total_files = file_count if index.zero?
+
+        stat_sections << "Branch: origin/#{branch} (#{ahead} commit(s) ahead)\n#{stat_stdout.strip}".strip
+
+        Debug.debug("Computing full diff #{original_commit}..origin/#{branch}")
+        patch_stdout, patch_stderr, _patch_status = Debug.debug_exec(
+          'git', 'diff', original_commit, "origin/#{branch}", git_trace: false
+        )
+        unless patch_stderr.strip.empty?
+          Debug.debug("diff stderr (#{branch}): #{Debug.redact(patch_stderr.strip)}")
+        end
+        patches << patch_stdout unless patch_stdout.strip.empty?
+      end
+
+      {
+        branches: branches,
+        primary_branch: branches.first,
+        commits_ahead: primary_ahead,
+        files_changed: total_files,
+        stat: stat_sections.join("\n\n"),
+        patch: patches.join("\n")
+      }
     end
   end
 end

@@ -96,14 +96,17 @@ module AgenticDevBench
       # value. When disabled, output is only captured, with no extra writes.
       #
       # @param cmd [Array<String>] The command and arguments to run.
+      # @param git_trace [Boolean] When false, suppresses GIT_TRACE /
+      #   GIT_CURL_VERBOSE for git commands even in debug mode. Use this
+      #   for metric collection where stderr must stay clean.
       # @param opts [Hash] Options forwarded to Open3.popen3 (Process.spawn),
       #   plus Open3.capture3-compatible :stdin_data and :binmode.
       # @return [Array<String, String, Process::Status>] stdout, stderr, status.
-      def debug_exec(*cmd, **opts)
+      def debug_exec(*cmd, git_trace: true, **opts)
         argv = cmd.length == 1 && cmd.first.is_a?(Array) ? cmd.first.dup : cmd.dup
         env = argv.first.is_a?(Hash) ? argv.shift : {}
         # Auto-enable git tracing for git invocations.
-        env = git_debug_env.merge(env) if argv.first.to_s == 'git' && enabled?
+        env = git_debug_env.merge(env) if argv.first.to_s == 'git' && enabled? && git_trace
         debug("Running: #{redact(argv.inspect)}")
         debug("  env: #{redact(env.inspect)}") unless env.empty?
         stdout, stderr, status = capture3_streaming(env, argv, opts)
