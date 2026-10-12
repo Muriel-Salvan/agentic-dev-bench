@@ -167,7 +167,7 @@ module AgenticDevBench
       )
       env_dir = File.join(task_dir, 'environment')
       FileUtils.mkdir_p(env_dir)
-      File.write(
+      File.binwrite(
         File.join(env_dir, 'Dockerfile'),
         <<~DOCKERFILE
           # Base image for the Harbor task environment
@@ -227,7 +227,7 @@ module AgenticDevBench
         DOCKERFILE
       )
       entrypoint_file = File.join(env_dir, 'entrypoint.sh')
-      File.write(
+      File.binwrite(
         entrypoint_file,
         <<~BASH
           #!/bin/sh
@@ -245,6 +245,23 @@ module AgenticDevBench
           # Harbor starts the container with `sh -c "sleep infinity"`; this
           # ENTRYPOINT prepares /workspace first, then `exec "$@"` hands off to
           # that command so the container stays alive for the agent.
+          #
+          # Debug visibility: Harbor deletes the container after a failed
+          # `docker compose up --wait` (so `docker logs` is unrecoverable) and
+          # merges compose stderr into stdout (hence `Stderr: None`). To keep
+          # the container's own output visible, everything below is duplicated
+          # to the Harbor convention publish dir (/logs/artifacts), which
+          # Harbor bind-mounts to <trial>/artifacts/logs/artifacts/ on the
+          # host and keeps in --debug runs (workspace/ is not deleted). All
+          # log-file writes are best-effort (|| true) so a missing mount never
+          # breaks the clone itself. NOTE: /bin/sh is dash (no pipefail), so
+          # git output is captured via a temp file rather than a pipeline.
+          ADB_LOG_DIR="/logs/artifacts"
+          ADB_LOG="${ADB_LOG_DIR}/entrypoint.log"
+          mkdir -p "$ADB_LOG_DIR" 2>/dev/null || true
+          touch "$ADB_LOG" 2>/dev/null || true
+          adb_note() { echo "$@"; echo "$@" >>"$ADB_LOG" 2>/dev/null || true; }
+          adb_err() { echo "$@" >&2; echo "$@" >>"$ADB_LOG" 2>/dev/null || true; }
           REPO_URL="${REPO_URL:?REPO_URL must be set}"
           BASE_BRANCH="${BASE_BRANCH:-main}"
           WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
@@ -253,32 +270,43 @@ module AgenticDevBench
           # opaque status (which Harbor surfaces only as
           # `docker compose ... exited (255)` -> RuntimeError). Capture git's
           # real output to a log AND stderr so it lands in `docker logs` and in
-          # Harbor's exception output. NOTE: this is /bin/sh (dash, no
-          # pipefail), so we capture via a temp file rather than a pipeline
-          # (a pipeline would mask git's non-zero exit code).
+          # Harbor's exception output.
           if [ ! -d "$WORKSPACE_DIR/.git" ]; then
-            echo "Cloning $REPO_URL into $WORKSPACE_DIR (branch: $BASE_BRANCH)"
+            adb_note "Cloning $REPO_URL into $WORKSPACE_DIR (branch: $BASE_BRANCH)"
             rm -rf "$WORKSPACE_DIR"
             clone_log="$(mktemp)"
             if git clone "$REPO_URL" "$WORKSPACE_DIR" >"$clone_log" 2>&1; then
               cat "$clone_log"
+              cat "$clone_log" >>"$ADB_LOG" 2>/dev/null || true
               rm -f "$clone_log"
-              git -C "$WORKSPACE_DIR" checkout "$BASE_BRANCH"
+              checkout_log="$(mktemp)"
+              if git -C "$WORKSPACE_DIR" checkout "$BASE_BRANCH" >"$checkout_log" 2>&1; then
+                cat "$checkout_log"
+                cat "$checkout_log" >>"$ADB_LOG" 2>/dev/null || true
+              else
+                checkout_status=$?
+                adb_err "adb-entrypoint: ERROR: 'git checkout $BASE_BRANCH' failed (exit $checkout_status)."
+                cat "$checkout_log" >&2 || true
+                cat "$checkout_log" >>"$ADB_LOG" 2>/dev/null || true
+                exit "$checkout_status"
+              fi
+              rm -f "$checkout_log"
             else
               clone_status=$?
-              echo "adb-entrypoint: ERROR: 'git clone $REPO_URL' failed (exit $clone_status)." >&2
-              echo "adb-entrypoint: This is almost always an auth or network problem. Verify that:" >&2
-              echo "adb-entrypoint:   * AGENT_GITHUB_TOKEN / GH_TOKEN is set, valid, and not expired," >&2
-              echo "adb-entrypoint:   * it has contents:read on this PRIVATE sandbox repo, and" >&2
-              echo "adb-entrypoint:   * this container has network egress to github.com." >&2
-              echo "adb-entrypoint: --- git output follows ---" >&2
-              cat "$clone_log" >&2
+              adb_err "adb-entrypoint: ERROR: 'git clone $REPO_URL' failed (exit $clone_status)."
+              adb_err "adb-entrypoint: This is almost always an auth or network problem. Verify that:"
+              adb_err "adb-entrypoint:   * AGENT_GITHUB_TOKEN / GH_TOKEN is set, valid, and not expired,"
+              adb_err "adb-entrypoint:   * it has contents:read on this PRIVATE sandbox repo, and"
+              adb_err "adb-entrypoint:   * this container has network egress to github.com."
+              adb_err "adb-entrypoint: --- git output follows ---"
+              cat "$clone_log" >&2 || true
+              cat "$clone_log" >>"$ADB_LOG" 2>/dev/null || true
               exit "$clone_status"
             fi
           else
             # Idempotent: Harbor restores the agent's /workspace into the
             # verifier before tests run, so an existing checkout is left as-is.
-            echo "$WORKSPACE_DIR already contains a git checkout; leaving it in place"
+            adb_note "$WORKSPACE_DIR already contains a git checkout; leaving it in place"
           fi
 
           exec "$@"
@@ -287,7 +315,10 @@ module AgenticDevBench
       File.chmod(0o755, entrypoint_file)
       test_file = File.join(task_dir, 'tests', 'test.sh')
       FileUtils.mkdir_p(File.dirname(test_file))
-      File.write(
+      # binwrite keeps LF-only line endings for the Linux container even when
+      # generated on a Windows host (File.write would emit CRLF -> `bad
+      # interpreter` / exit 255 before any log line is produced).
+      File.binwrite(
         test_file,
         <<~BASH
           #!/bin/bash
@@ -415,7 +446,6 @@ module AgenticDevBench
         Debug.debug("Harbor docker debug env: #{Debug.redact({ 'DOCKER_DEBUG' => '1', 'BUILDKIT_PROGRESS' => 'plain' }.inspect)}")
       end
       stdout, stderr, status = Debug.debug_exec(env, *argv)
-      Debug.debug("Harbor run finished with exit_code=#{status.exitstatus}")
       Result.new(status.exitstatus, stdout, stderr)
     end
   end

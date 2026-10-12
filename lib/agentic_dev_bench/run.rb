@@ -88,6 +88,7 @@ module AgenticDevBench
           result = HarborRunner.new(scenario: @scenario, sandbox: sandbox_info, workspace: workspace).run!
           finished_at = Time.now
           Debug.debug("Harbor run finished with exit_code=#{result.exit_code}")
+          log_harbor_failure_details(workspace) if Debug.enabled? && !result.exit_code.zero?
 
           Debug.debug("Collecting metrics...")
           metrics = Metrics.collect(
@@ -119,6 +120,42 @@ module AgenticDevBench
         [@id, metrics]
       ensure
         sandbox.destroy!
+      end
+    end
+
+    private
+
+    # Debug-only failure pointer: Harbor deletes the failed container (so
+    # `docker logs` is unrecoverable) and the compose error surfaced on stdout
+    # is a bare `exited (255)` with `Stderr: None`. The container's own output
+    # survives in the kept workspace (debug mode skips workspace cleanup):
+    # each trial's exception.txt / trial.log, plus entrypoint.log which the
+    # container entrypoint tees to the Harbor /logs/artifacts convention mount
+    # (<trial>/artifacts/logs/artifacts/entrypoint.log). Prints redacted tails
+    # so the next `exited (255)` is diagnosable without digging.
+    #
+    # @param workspace [String] Path to the workspace directory containing jobs/.
+    def log_harbor_failure_details(workspace)
+      patterns = [
+        File.join(workspace, 'jobs', '**', 'exception.txt'),
+        File.join(workspace, 'jobs', '**', 'trial.log'),
+        File.join(workspace, 'jobs', '**', 'entrypoint.log')
+      ]
+      files = patterns.flat_map { |pattern| Dir.glob(pattern) }.uniq.sort
+      if files.empty?
+        Debug.debug('No Harbor failure logs found under workspace/jobs (exception.txt, trial.log, entrypoint.log)')
+        return
+      end
+
+      files.each do |file|
+        Debug.debug("--- #{file} (tail) ---")
+        begin
+          tail = File.readlines(file, encoding: 'UTF-8', invalid: :replace, undef: :replace).last(80).join.strip
+          tail = '(empty)' if tail.empty?
+        rescue StandardError => e
+          tail = "(could not read failure log: #{e.class}: #{e.message})"
+        end
+        Debug.debug(Debug.redact(tail))
       end
     end
   end
