@@ -442,9 +442,9 @@ module AgenticDevBench
 
       # Harbor 0.24.0 CLI: harbor run -p <task_directory> -a <agent> -m <model>
       # The old `--task <file>` syntax is no longer supported in Harbor 0.24.0
-      # Note: `harbor run` has no stable --debug flag, so in debug mode we
-      # rely on our own command/exit/output logging plus Docker verbosity
-      # below (harbor shells out to docker for builds/runs).
+      # In debug mode we pass Harbor's own `--debug` flag (listed under
+      # `harbor run --help` Job Settings) plus Docker verbosity below
+      # (harbor shells out to docker for builds/runs).
       agent_name = @scenario.agent.fetch('name')
       model = @scenario.agent.fetch('model')
       argv = [
@@ -455,6 +455,7 @@ module AgenticDevBench
         '--model', model,
         '--jobs-dir', File.join(@workspace, 'jobs')
       ]
+      argv << '--debug' if Debug.enabled?
       Debug.debug("Executing Harbor run with command: #{argv.inspect}")
       # Harbor interpolates [environment.env] ${VAR} references from this
       # process's environment, so export the resolved agent token under
@@ -468,9 +469,11 @@ module AgenticDevBench
       Debug.debug("GitHub token source: #{ENV[AGENT_TOKEN_ENV].nil? || ENV[AGENT_TOKEN_ENV].empty? ? FALLBACK_TOKEN_ENV : AGENT_TOKEN_ENV} (value redacted)")
       env = harbor_env
       if Debug.enabled?
-        # Docker's own debug knobs (harbor invokes docker under the hood).
-        env = harbor_env.merge('DOCKER_DEBUG' => '1', 'BUILDKIT_PROGRESS' => 'plain')
-        Debug.debug("Harbor docker debug env: #{Debug.redact({ 'DOCKER_DEBUG' => '1', 'BUILDKIT_PROGRESS' => 'plain' }.inspect)}")
+        # Docker's own debug knobs (harbor invokes docker under the hood) plus
+        # PYTHONUNBUFFERED so Harbor's `--debug` lines aren't block-buffered
+        # through the Open3.popen3 pipes (which Debug streams live).
+        env = harbor_env.merge('DOCKER_DEBUG' => '1', 'BUILDKIT_PROGRESS' => 'plain', 'PYTHONUNBUFFERED' => '1')
+        Debug.debug("Harbor debug env: #{Debug.redact({ 'DOCKER_DEBUG' => '1', 'BUILDKIT_PROGRESS' => 'plain', 'PYTHONUNBUFFERED' => '1' }.inspect)}")
       end
       stdout, stderr, status = Debug.debug_exec(env, *argv)
       Result.new(status.exitstatus, stdout, stderr)

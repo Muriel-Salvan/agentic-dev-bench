@@ -12,8 +12,8 @@ module AgenticDevBench
   # verbose mode when debug is on:
   # * git: GIT_TRACE=1 + GIT_CURL_VERBOSE=1
   # * docker (via harbor): DOCKER_DEBUG=1 + BUILDKIT_PROGRESS=plain
-  # * harbor: logged command + exit status + output tails (no extra flag
-  #   injected, since `harbor run` has no stable --debug flag)
+  # * harbor: `--debug` flag + PYTHONUNBUFFERED=1, plus logged command +
+  #   exit status + output tails (live-mirrored via capture3_streaming)
   module Debug
     # Matches embedded credentials in URLs (tokens, passwords).
     REDACTED = '[REDACTED]'.freeze
