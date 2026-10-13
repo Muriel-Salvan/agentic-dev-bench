@@ -52,6 +52,15 @@ COPY entrypoint.sh /usr/local/bin/adb-entrypoint.sh
 RUN chmod +x /usr/local/bin/adb-entrypoint.sh
 ENV REPO_URL="<%= @sandbox['repository_url'] %>" BASE_BRANCH="main"
 
+# X-Aeon Agents session state lives outside /workspace (see
+# x_aeon_agents_config.rb): task.toml uploads the whole /workspace as
+# an artifact into the separate verifier, and a sessions/... tree
+# inside it breaks `docker compose cp` on Windows (MAX_PATH /
+# transient files). The env-var config file is evaluated last by
+# XAeonAgents::Config.load, so it wins over ~/ and ./. configs.
+COPY x_aeon_agents_config.rb /etc/x_aeon_agents.rb
+ENV X_AEON_AGENTS_CONFIG=/etc/x_aeon_agents.rb
+
 # Set the working directory inside the container
 WORKDIR /workspace
 
