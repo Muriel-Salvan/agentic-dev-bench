@@ -8,7 +8,6 @@ module AgenticDevBench
   # == JSON/YAML File Structure
   #
   # The scenario YAML file must contain the following keys:
-  # * +id+ - A unique identifier for the scenario
   # * +name+ - A human-readable name
   # * +source+ - Repository to clone (+repository+, +commit+)
   # * +sandbox+ - GitHub sandbox configuration (+owner_env+, +name_prefix+)
@@ -20,10 +19,14 @@ module AgenticDevBench
   #   implementing the agent (see agents/scripts/README.md)
   # * +evaluation+ - Evaluation criteria and metrics
   #
+  # The scenario identifier is not declared in the file: it is derived from
+  # the file name (the basename without the extension). For example,
+  # +scenarios/add-greeting-xaa-free.yml+ has the id +add-greeting-xaa-free+.
+  #
   # == Example
   #
-  #   scenario = AgenticDevBench::Scenario.new('scenarios/add-greeting.yml')
-  #   puts scenario.id      # => "add-greeting"
+  #   scenario = AgenticDevBench::Scenario.new('scenarios/add-greeting-xaa-free.yml')
+  #   puts scenario.id      # => "add-greeting-xaa-free"
   #   puts scenario.name    # => "Add greeting helper"
   #   puts scenario.source  # => { repository: "...", commit: "..." }
   #
@@ -38,7 +41,8 @@ module AgenticDevBench
     #
     # @param path [String] The path to the scenario YAML file.
     def initialize(path)
-      @data = YAML.load_file(path)
+      @path = File.expand_path(path)
+      @data = YAML.load_file(@path)
     end
 
     # Returns all available scenarios sorted by file path.
@@ -54,8 +58,9 @@ module AgenticDevBench
       Dir['scenarios/*.yml'].sort.map { |path| new(path) }
     end
 
-    # @return [String] The scenario's unique identifier (from +id+ field).
-    def id = data.fetch('id')
+    # @return [String] The scenario's unique identifier, derived from the
+    #   scenario file name (basename without the extension).
+    def id = File.basename(@path, File.extname(@path))
 
     # @return [String] The scenario's human-readable name (from +name+ field).
     def name = data.fetch('name')

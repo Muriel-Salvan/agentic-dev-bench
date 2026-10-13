@@ -1,0 +1,34 @@
+name: Add greeting helper
+
+source:
+  repository: Muriel-Salvan/cline-rb
+  commit: v1.1.1
+
+sandbox:
+  owner_env: GITHUB_OWNER
+  name_prefix: agentic-dev-bench
+
+issue:
+  title: Add a greeting helper
+  body: |
+    Add a small reusable greeting helper to the cline-rb config.
+
+    Requirements:
+    - Add a method named `greeting` in Cline::Configuration (accessible via `Cline.config.greeting`).
+    - It must return exactly `Hello, world!`.
+    - Add automated tests covering the new behavior.
+    - Keep the implementation small and idiomatic for the repository.
+
+agent:
+  # Harbor agent identifier: a name from Harbor's agent catalog (below) or,
+  # for the repo-local custom agent, its Python import path. With the custom
+  # agent, `model` becomes the repo-relative path of the bash script
+  # implementing the agent (see agents/scripts/README.md):
+  #   name: bash_script_agent.agent:BashScriptAgent
+  #   model: agents/scripts/example-agent.sh
+  name: bash_script_agent.agent:BashScriptAgent
+  # Model identifier (Harbor agent registry)
+  model: agents/scripts/xaa.sh
+
+evaluation:
+  ruby: "require 'cline' ; exit(Cline.config.greeting == 'Hello, world!' ? 0 : 1)"
