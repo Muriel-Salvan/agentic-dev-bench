@@ -22,6 +22,24 @@ RUN mkdir -p /usr/share/keyrings \
   && rm -rf /var/lib/apt/lists/* \
   && git --version && gh --version
 
+# Install Node.js 22 (LTS) from NodeSource plus the Cline CLI.
+# cline-rb shells out to the `cline` binary (Cline::Utils::Os::Linux#cline_exe
+# returns ["cline"]) via PTY.spawn; without it every xaa run aborts with
+# Errno::ENOENT at cline/cli.rb:307. Node 22 meets the CLI requirement
+# (Node 20+, 22 recommended); the npm package resolves the platform binary
+# so no extra runtime is needed. Both pins are deliberate, bump together
+# when a newer Cline release is adopted.
+ENV NODE_MAJOR=22 CLINE_VERSION=3.0.71
+RUN mkdir -p /etc/apt/keyrings \
+  && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+    | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+  && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" \
+    > /etc/apt/sources.list.d/nodesource.list \
+  && apt-get update -qq && apt-get install -y --no-install-recommends nodejs \
+  && rm -rf /var/lib/apt/lists/* \
+  && npm install -g cline@$CLINE_VERSION \
+  && node --version && npm --version && cline --version
+
 # Non-secret git/gh defaults baked into the image. Credentials
 # themselves are injected at run time via [environment.env]
 # (GH_TOKEN/GITHUB_TOKEN) so they never appear in image layers.
