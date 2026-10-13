@@ -1,5 +1,8 @@
-# Base image for the Harbor task environment
-FROM ruby:3.4-bookworm
+# Base image for the Harbor task environment.
+# Pinned to the exact Ruby patch (3.4.11) the benchmark scenarios are
+# validated against, so the floating `3.4` tag can never silently drift
+# the interpreter under the agent and the verifier.
+FROM ruby:3.4.11-bookworm
 
 # Install required system packages.
 # git: clone/push the sandbox repo; gh: issues/PRs/API without
@@ -29,7 +32,14 @@ RUN git config --global --add safe.directory /workspace \
   && git config --global --add credential.helper "!gh auth git-credential"
 ENV GIT_TERMINAL_PROMPT=0 GH_PROMPT_DISABLED=1 GCM_INTERACTIVE=never
 
-# TODO: Install Ruby 3.4.11 and the x_aeon_agents Rubygem in the system gems
+# The x_aeon_agents gem is installed into the image's default gem
+# home (/usr/local/bundle, on PATH for every user) so its `xaa` CLI
+# is available system-wide -- to the non-root agent running
+# agents/scripts/xaa.sh as well as to the separate verifier -- rather
+# than into the sandbox repository's project bundle. The gem is pinned
+# to the exact release the benchmark scenarios are validated against;
+# bump deliberately when a newer x_aeon_agents release is adopted.
+RUN gem install --no-document x_aeon_agents -v 1.3.0
 
 # Clone the sandbox repository at container start (run time), NOT at
 # build time: the GitHub token is injected only via [environment.env]
