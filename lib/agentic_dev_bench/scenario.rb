@@ -13,7 +13,11 @@ module AgenticDevBench
   # * +source+ - Repository to clone (+repository+, +commit+)
   # * +sandbox+ - GitHub sandbox configuration (+owner_env+, +name_prefix+)
   # * +issue+ - Issue to create (+title+, +body+)
-  # * +agent+ - Agent configuration (+name+, +model+)
+  # * +agent+ - Agent configuration (+name+, +model+). +name+ is either a
+  #   Harbor catalog agent (e.g. +cline-cli+) or a custom agent import path
+  #   (e.g. +bash_script_agent.agent:BashScriptAgent+); for the bash-script
+  #   agent, +model+ is the repo-relative path to the bash script
+  #   implementing the agent (see agents/scripts/README.md)
   # * +evaluation+ - Evaluation criteria and metrics
   #
   # == Example

@@ -34,6 +34,25 @@ bundle exec bin/agentic-dev-bench execute add-greeting --keep
 
 Runs are stored below `runs/` and include the sandbox metadata, Harbor stdout/stderr, `result.yml` (scalar metrics plus the diff `--stat`), and `git_diff.patch` (full unified diff of the pushed branch). Successful runs are cleaned up automatically; `--keep` preserves the sandbox for inspection.
 
+## Custom bash-script agent
+
+Scenarios can run any bash script as the agent instead of a catalog agent. The repository ships a Harbor custom agent (`bash_script_agent.agent:BashScriptAgent`) that uploads the scenario's script into the task container and executes it:
+
+```yaml
+agent:
+  name: bash_script_agent.agent:BashScriptAgent
+  # Repo-relative path to the bash script implementing the agent.
+  model: agents/scripts/example-agent.sh
+```
+
+`HarborRunner` prepends the repository root to `PYTHONPATH` so the harbor process can import the custom agent class (no install step required), and validates the script path before invoking Harbor.
+
+Script contract (see `agents/scripts/README.md`):
+
+- Runs as the agent user in `/workspace` (the cloned sandbox repository), with `git` and authenticated `gh` available.
+- The task prompt is exported in the `INSTRUCTION` environment variable.
+- Exit non-zero to fail the trial; the scenario's separate verifier still decides the final reward.
+
 ## Design
 
 ```text

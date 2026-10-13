@@ -1,2 +1,5 @@
 # Directory used to store runs
 /runs/
+
+# Python cache files
+__pycache__/

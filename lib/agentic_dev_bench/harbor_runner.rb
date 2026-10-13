@@ -46,6 +46,32 @@ module AgenticDevBench
     AGENT_TOKEN_ENV = 'AGENT_GITHUB_TOKEN'
     FALLBACK_TOKEN_ENV = 'GITHUB_TOKEN'
 
+    # Repository root, used to resolve the repo-local custom Harbor agent
+    # package (+bash_script_agent/+) and scenario-relative agent script
+    # paths.
+    REPO_ROOT = File.expand_path('.')
+
+    # Agent names starting with this prefix are the repo-local bash-script
+    # custom agent (+bash_script_agent.agent:BashScriptAgent+). For those,
+    # the scenario's +model+ value is the path to the bash script the agent
+    # should run, relative to the repository root.
+    BASH_SCRIPT_AGENT_PREFIX = 'bash_script_agent'
+
+    # Resolves the scenario's +model+ value for the bash-script custom agent
+    # into an absolute script path on the host, failing fast (before Harbor
+    # and Docker get involved) when the script does not exist.
+    #
+    # @param model [String] Path to the agent's bash script, relative to the
+    #   repository root (absolute paths are also accepted).
+    # @return [String] Absolute path to an existing script file.
+    # @raise [ArgumentError] If no script exists at the resolved path.
+    def self.resolve_agent_script(model)
+      path = File.expand_path(model, REPO_ROOT)
+      raise ArgumentError, "Agent script not found: #{path} (from agent.model #{model.inspect})" unless File.file?(path)
+
+      path
+    end
+
     # Resolves the token handed to the agent container. Never logs the
     # value itself (see Debug.redact).
     #
@@ -447,6 +473,10 @@ module AgenticDevBench
       # (harbor shells out to docker for builds/runs).
       agent_name = @scenario.agent.fetch('name')
       model = @scenario.agent.fetch('model')
+      # For the repo-local bash-script agent, `model` names the bash script
+      # implementing the agent; resolve it to a validated absolute host
+      # path so the custom agent can upload it into the container.
+      model = self.class.resolve_agent_script(model) if agent_name.start_with?(BASH_SCRIPT_AGENT_PREFIX)
       argv = [
         'harbor', 'run',
         '--yes',
@@ -476,6 +506,11 @@ module AgenticDevBench
         'PYTHONUTF8' => '1',
         'PYTHONIOENCODING' => 'utf-8'
       }
+      # Let the harbor process import the repo-local custom agent package
+      # (bash_script_agent.agent:BashScriptAgent) referenced by scenarios as
+      # an --agent import path. Prepended so a repo-local package wins over
+      # any same-named module elsewhere; harmless for catalog agents.
+      harbor_env['PYTHONPATH'] = [REPO_ROOT, ENV['PYTHONPATH']].compact.reject(&:empty?).join(File::PATH_SEPARATOR)
       harbor_env['GH_TOKEN'] = ENV['GH_TOKEN'] unless ENV['GH_TOKEN'].nil? || ENV['GH_TOKEN'].empty?
       Debug.debug("GitHub token source: #{ENV[AGENT_TOKEN_ENV].nil? || ENV[AGENT_TOKEN_ENV].empty? ? FALLBACK_TOKEN_ENV : AGENT_TOKEN_ENV} (value redacted)")
       env = harbor_env

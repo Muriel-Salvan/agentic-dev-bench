@@ -21,7 +21,12 @@ issue:
     - Keep the implementation small and idiomatic for the repository.
 
 agent:
-  # Harbor agent identifier (from Harbor's agent catalog)
+  # Harbor agent identifier: a name from Harbor's agent catalog (below) or,
+  # for the repo-local custom agent, its Python import path. With the custom
+  # agent, `model` becomes the repo-relative path of the bash script
+  # implementing the agent (see agents/scripts/README.md):
+  #   name: bash_script_agent.agent:BashScriptAgent
+  #   model: agents/scripts/example-agent.sh
   name: cline-cli
   # Model identifier (Harbor agent registry)
   model: cline:cline-free/muse-spark-1.3-contributor
