@@ -34,4 +34,4 @@ fi
 
 echo "xaa.sh: delegating to xaa for GitHub issue #${issue_number}"
 
-exec xaa implement-issue "${issue_number}"
+exec xaa implement-issue "${issue_number}" --no-interactive

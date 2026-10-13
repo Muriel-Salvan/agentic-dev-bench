@@ -36,6 +36,23 @@ normalized to LF) and runs it as `bash /installed-agent/agent.sh`:
 - **Line endings:** keep LF in the repository; CRLF is normalized on upload,
   but LF-native scripts avoid surprises with shebangs and diffs.
 
+## Failure output
+
+Harbor caps exec output at 1000 chars inside `NonZeroAgentExitCodeError`
+messages (the `... [N chars truncated] ...` you see in `exception.txt` and
+`result.json`). `BashScriptAgent` compensates two ways:
+
+- Full transcript: the script runs as
+  `bash /installed-agent/agent.sh 2>&1 | tee /logs/agent/agent-output.log`
+  (exit code preserved via `PIPESTATUS[0]`), and Harbor syncs
+  `/logs/agent/` to `<trial>/agent/` on the host even on failure. Read the
+  untruncated output there first.
+- Raised message cap: `_truncate_output` keeps Harbor's head+tail format
+  but defaults to 100000 chars (`BashScriptAgent.DEFAULT_MAX_OUTPUT_CHARS`),
+  overridable via the `BASH_SCRIPT_AGENT_MAX_OUTPUT` env var (agent
+  `extra_env` or host env). `exception.txt` therefore stays complete for
+  realistically sized output.
+
 ## Adding a new agent script
 
 1. Copy `example-agent.sh` to a new file next to it (or any path in the repo).
