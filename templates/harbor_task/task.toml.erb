@@ -1,0 +1,54 @@
+# Harbor task configuration
+language = "ruby"
+framework = "unknown"
+environment_type = "docker"
+
+# Copy the agent's working tree into the verifier before grading.
+# With [verifier] environment_mode = "separate" below, Harbor starts
+# the verifier from a fresh sandbox WITHOUT the agent's filesystem
+# changes. Declaring /workspace as an artifact makes Harbor collect
+# it after the agent finishes and restore it to its original path
+# (/workspace) in the verifier, so tests/test.sh grades the agent's
+# actual clone in place. `destination` only affects the host-side
+# save path; the verifier always receives the source path.
+artifacts = [
+  { source = "/workspace", destination = "workspace" },
+]
+
+# Sandbox baseline: GitHub credentials for the agent container.
+# Harbor interpolates ${VAR} from the `harbor run` process
+# environment at run time, so the secret never lands in the
+# Docker image layers. HarborRunner#run! always exports
+# AGENT_GITHUB_TOKEN (= AGENT_GITHUB_TOKEN or GITHUB_TOKEN
+# from the host) into that process env, hence the simple
+# ${AGENT_GITHUB_TOKEN} references below (no nested fallback
+# syntax, which Harbor does not support).
+# GH_TOKEN and GITHUB_TOKEN both feed `gh` headless auth;
+# GIT_TERMINAL_PROMPT=0 turns auth failures into fast errors
+# instead of interactive prompts.
+[environment.env]
+GH_TOKEN = "${AGENT_GITHUB_TOKEN}"
+GITHUB_TOKEN = "${AGENT_GITHUB_TOKEN}"
+GIT_TERMINAL_PROMPT = "0"
+GH_PROMPT_DISABLED = "1"
+
+# Run the verifier in a dedicated, separate container so the
+# tests/ folder never lands in the agent's environment and
+# grading is isolated from whatever the agent left in its own
+# filesystem. Without a verifier-specific image or build
+# definition, Harbor starts a fresh copy of the agent
+# environment (built from environment/Dockerfile) and uploads
+# tests/ to /tests/ there. A separate verifier does NOT inherit
+# the agent's filesystem changes on its own, but the top-level
+# `artifacts` declaration above copies the agent's /workspace
+# into this verifier first, so tests/test.sh grades the agent's
+# actual working tree in place (its `origin` points at the
+# GitHub sandbox and carries the pushed branch).
+[verifier]
+environment_mode = "separate"
+
+# The verifier clones the sandbox GitHub repository to grade the
+# pushed branch, so give it read access too.
+[verifier.env]
+GH_TOKEN = "${AGENT_GITHUB_TOKEN}"
+GITHUB_TOKEN = "${AGENT_GITHUB_TOKEN}"

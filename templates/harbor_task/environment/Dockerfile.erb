@@ -1,0 +1,51 @@
+# Base image for the Harbor task environment
+FROM ruby:3.4-bookworm
+
+# Install required system packages.
+# git: clone/push the sandbox repo; gh: issues/PRs/API without
+# interactive login (reads GH_TOKEN/GITHUB_TOKEN at run time).
+# ca-certificates/curl/gnupg: fetch the official gh apt keyring.
+RUN apt-get update -qq && apt-get install -y --no-install-recommends   ca-certificates   curl   git   gnupg   && rm -rf /var/lib/apt/lists/*
+
+# Install the official GitHub CLI from cli.github.com packages.
+# Key fingerprints (SHA256): see https://github.com/cli/cli/blob/trunk/docs/install_linux.md
+RUN mkdir -p /usr/share/keyrings \
+  && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+  && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+    > /etc/apt/sources.list.d/github-cli.list \
+  && apt-get update -qq && apt-get install -y --no-install-recommends gh \
+  && rm -rf /var/lib/apt/lists/* \
+  && git --version && gh --version
+
+# Non-secret git/gh defaults baked into the image. Credentials
+# themselves are injected at run time via [environment.env]
+# (GH_TOKEN/GITHUB_TOKEN) so they never appear in image layers.
+RUN git config --global --add safe.directory /workspace \
+  && git config --global user.name "agentic-dev-bench" \
+  && git config --global user.email "agentic-dev-bench@local" \
+  && git config --global credential.helper "" \
+  && git config --global --add credential.helper "!gh auth git-credential"
+ENV GIT_TERMINAL_PROMPT=0 GH_PROMPT_DISABLED=1 GCM_INTERACTIVE=never
+
+# TODO: Install Ruby 3.4.11 and the x_aeon_agents Rubygem in the system gems
+
+# Clone the sandbox repository at container start (run time), NOT at
+# build time: the GitHub token is injected only via [environment.env]
+# at run time and the sandbox repo is private, so a build-time clone
+# is impossible and would risk baking credentials into image layers.
+# entrypoint.sh performs the authenticated clone once GH_TOKEN /
+# GITHUB_TOKEN are available (the image wires `gh auth git-credential`
+# as the git credential helper). The repository URL is not secret.
+COPY entrypoint.sh /usr/local/bin/adb-entrypoint.sh
+RUN chmod +x /usr/local/bin/adb-entrypoint.sh
+ENV REPO_URL="<%= @sandbox['repository_url'] %>" BASE_BRANCH="main"
+
+# Set the working directory inside the container
+WORKDIR /workspace
+
+# Harbor overrides the image CMD (`sh -c "sleep infinity"`) but honors
+# ENTRYPOINT, so adb-entrypoint.sh runs the clone first, then hands
+# off via `exec "$@"` to keep the container alive for the agent.
+ENTRYPOINT ["/usr/local/bin/adb-entrypoint.sh"]

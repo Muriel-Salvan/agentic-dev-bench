@@ -1,0 +1,93 @@
+#!/bin/sh
+set -eu
+
+# Harbor task environment entrypoint.
+#
+# The GitHub token is injected only at run time via task.toml
+# [environment.env] (never baked into image layers) and the sandbox
+# repository is private, so a build-time `git clone` cannot work. We
+# clone here, at container start, when GH_TOKEN/GITHUB_TOKEN are
+# present and the `gh auth git-credential` helper (configured in the
+# Dockerfile) authenticates headlessly.
+#
+# Harbor starts the container with `sh -c "sleep infinity"`; this
+# ENTRYPOINT prepares /workspace first, then `exec "$@"` hands off to
+# that command so the container stays alive for the agent.
+#
+# Debug visibility: Harbor deletes the container after a failed
+# `docker compose up --wait` (so `docker logs` is unrecoverable) and
+# merges compose stderr into stdout (hence `Stderr: None`). To keep
+# the container's own output visible, everything below is duplicated
+# to the Harbor convention publish dir (/logs/artifacts), which
+# Harbor bind-mounts to <trial>/artifacts/logs/artifacts/ on the
+# host and keeps in --debug runs (workspace/ is not deleted). All
+# log-file writes are best-effort (|| true) so a missing mount never
+# breaks the clone itself. NOTE: /bin/sh is dash (no pipefail), so
+# git output is captured via a temp file rather than a pipeline.
+ADB_LOG_DIR="/logs/artifacts"
+ADB_LOG="${ADB_LOG_DIR}/entrypoint.log"
+mkdir -p "$ADB_LOG_DIR" 2>/dev/null || true
+touch "$ADB_LOG" 2>/dev/null || true
+adb_note() { echo "$@"; echo "$@" >>"$ADB_LOG" 2>/dev/null || true; }
+adb_err() { echo "$@" >&2; echo "$@" >>"$ADB_LOG" 2>/dev/null || true; }
+REPO_URL="${REPO_URL:?REPO_URL must be set}"
+BASE_BRANCH="${BASE_BRANCH:-main}"
+WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
+
+# Fail loudly instead of letting `set -e` kill the container with an
+# opaque status (which Harbor surfaces only as
+# `docker compose ... exited (255)` -> RuntimeError). Capture git's
+# real output to a log AND stderr so it lands in `docker logs` and in
+# Harbor's exception output.
+if [ ! -d "$WORKSPACE_DIR/.git" ]; then
+  adb_note "Cloning $REPO_URL into $WORKSPACE_DIR (branch: $BASE_BRANCH)"
+  # The image sets WORKDIR to /workspace, so this process starts
+  # with its cwd inside the directory we are about to delete.
+  # `rm -rf` on the cwd leaves getcwd() failing and `git clone`
+  # aborts with `fatal: Unable to read current working directory`
+  # (exit 128). Step out first so the clone has a valid cwd.
+  cd /
+  rm -rf "$WORKSPACE_DIR"
+  clone_log="$(mktemp)"
+  if git clone "$REPO_URL" "$WORKSPACE_DIR" >"$clone_log" 2>&1; then
+    cat "$clone_log"
+    cat "$clone_log" >>"$ADB_LOG" 2>/dev/null || true
+    rm -f "$clone_log"
+    checkout_log="$(mktemp)"
+    if git -C "$WORKSPACE_DIR" checkout "$BASE_BRANCH" >"$checkout_log" 2>&1; then
+      cat "$checkout_log"
+      cat "$checkout_log" >>"$ADB_LOG" 2>/dev/null || true
+    else
+      checkout_status=$?
+      adb_err "adb-entrypoint: ERROR: 'git checkout $BASE_BRANCH' failed (exit $checkout_status)."
+      cat "$checkout_log" >&2 || true
+      cat "$checkout_log" >>"$ADB_LOG" 2>/dev/null || true
+      exit "$checkout_status"
+    fi
+    rm -f "$checkout_log"
+    # Restore the image's WORKDIR semantics for the handed-off
+    # command (we stepped out to /tmp before rm -rf above).
+    cd "$WORKSPACE_DIR" 2>/dev/null || true
+  else
+    clone_status=$?
+    adb_err "adb-entrypoint: ERROR: 'git clone $REPO_URL' failed (exit $clone_status)."
+    adb_err "adb-entrypoint: This is almost always an auth or network problem. Verify that:"
+    adb_err "adb-entrypoint:   * AGENT_GITHUB_TOKEN / GH_TOKEN is set, valid, and not expired,"
+    adb_err "adb-entrypoint:   * it has contents:read on this PRIVATE sandbox repo, and"
+    adb_err "adb-entrypoint:   * this container has network egress to github.com."
+    adb_err "adb-entrypoint: --- git output follows ---"
+    cat "$clone_log" >&2 || true
+    cat "$clone_log" >>"$ADB_LOG" 2>/dev/null || true
+    # Recreate the (deleted) workspace dir so Harbor's
+    # best-effort `docker cp /workspace` artifact step finds an
+    # (empty) path instead of `Could not find the file`.
+    mkdir -p "$WORKSPACE_DIR" 2>/dev/null || true
+    exit "$clone_status"
+  fi
+else
+  # Idempotent: Harbor restores the agent's /workspace into the
+  # verifier before tests run, so an existing checkout is left as-is.
+  adb_note "$WORKSPACE_DIR already contains a git checkout; leaving it in place"
+fi
+
+exec "$@"
