@@ -35,6 +35,7 @@ module AgenticDevBench
   #    1 file changed, 7 insertions(+)
   #   Full patch: runs/20261007T120000Z-3f9a2b1c/results/git_diff.patch
   #   Run: runs/20261007T120000Z-3f9a2b1c
+  #   Overall: PASS (all metrics successful)
   #
   # Scalar metrics (exit code, success, verifier_reward, verifier_passed,
   # verifier_exception, branch, commit/file counts) render in the table; the
@@ -44,11 +45,53 @@ module AgenticDevBench
   # actual verdict (they can differ when the CLI exits 0 despite a failing
   # trial).
   #
+  # The final +Overall:+ line is the global success status: every
+  # success-relevant metric is validated against +SUCCESS_PREDICATES+.
+  # When all checks pass the command prints +Overall: PASS+ and exits 0;
+  # otherwise it prints +Overall: FAIL+ listing the failing metrics,
+  # repeats them on stderr via +Thor::Error+, and exits 1 (see
+  # +CLI.exit_on_failure?+).
+  #
   # With the +--keep+ option, the GitHub sandbox is preserved after the run:
   #
   #   $ bundle exec bin/agentic-dev-bench execute add-greeting --keep
   #
   class CLI < Thor
+    # Exits with status 1 when a command raises +Thor::Error+.
+    #
+    # +Thor::Base.start+ rescues +Thor::Error+, prints the message on
+    # stderr, and only calls <tt>exit(false)</tt> when this returns
+    # +true+ (the Thor default prints the error, emits a deprecation
+    # warning, and still exits 0). This makes both the unknown-scenario
+    # error and a failed global status (see +#report_overall_status!+)
+    # end the process with a non-zero status.
+    #
+    # @return [Boolean] Always +true+.
+    def self.exit_on_failure?
+      true
+    end
+
+    # Success criteria for the global status printed at the end of
+    # +execute+ (see +#report_overall_status!+).
+    #
+    # Maps every scalar metric that has a notion of "successful" (as
+    # produced by +Metrics.collect+) to a predicate over its value;
+    # +true+ means the metric is successful. Metrics without such a
+    # notion are deliberately absent: +elapsed_seconds+ is
+    # informational (any duration is valid), while +feature_branches+
+    # and +git_diff_stat+ restate +feature_branch+ (+git_diff_stat+
+    # is also multi-line and printed separately).
+    SUCCESS_PREDICATES = {
+      'exit_code' => ->(value) { value == 0 },
+      'success' => ->(value) { value == true },
+      'verifier_reward' => ->(value) { value.is_a?(Numeric) && value >= 1.0 },
+      'verifier_passed' => ->(value) { value == true },
+      'verifier_exception' => ->(value) { value.nil? },
+      'feature_branch' => ->(value) { !value.to_s.empty? },
+      'commits_ahead' => ->(value) { value.to_i >= 1 },
+      'files_changed' => ->(value) { value.to_i >= 1 }
+    }.freeze
+
     # Lists all available scenario files in the +scenarios/+ directory.
     #
     # Iterates over all +.yml+ files in the +scenarios/+ directory,
@@ -76,6 +119,10 @@ module AgenticDevBench
     # @option options [Boolean] :keep (false)
     #   When +true+, preserves the GitHub sandbox after the run
     #   completes for debugging purposes.
+    #
+    # @raise [Thor::Error] When the scenario is unknown or the global
+    #   success status fails; +CLI.exit_on_failure?+ turns the error
+    #   into exit status 1.
     #
     # @example Basic execution
     #   $ bundle exec bin/agentic-dev-bench execute add-greeting
@@ -109,6 +156,36 @@ module AgenticDevBench
       end
       puts "Full patch: runs/#{run_id}/results/git_diff.patch"
       puts "Run: runs/#{run_id}"
+      report_overall_status!(result)
+    end
+
+    private
+
+    # Prints the global success status line and enforces it.
+    #
+    # Evaluates +SUCCESS_PREDICATES+ against the collected metrics. When
+    # every check passes, prints <tt>Overall: PASS (all metrics
+    # successful)</tt> and returns. Otherwise prints <tt>Overall: FAIL
+    # (metrics not successful: ...)</tt> with the failing metric names
+    # (their values are already in the table above) and raises
+    # +Thor::Error+ carrying the same detail, so Thor prints it on
+    # stderr and the process exits 1 (see +CLI.exit_on_failure?+).
+    #
+    # @param result [Hash<String, Object>] The scalar metrics produced
+    #   by +Metrics.collect+ (multi-line +git_diff_stat+ is ignored
+    #   here, as in +SUCCESS_PREDICATES+).
+    #
+    # @return [void]
+    #
+    # @raise [Thor::Error] When any metric check fails.
+    def report_overall_status!(result)
+      failed = SUCCESS_PREDICATES.reject { |metric, successful| successful.call(result[metric]) }.keys
+      if failed.empty?
+        puts 'Overall: PASS (all metrics successful)'
+      else
+        puts "Overall: FAIL (metrics not successful: #{failed.join(', ')})"
+        raise Thor::Error, "Overall status failed: metrics not successful: #{failed.join(', ')}"
+      end
     end
   end
 end
