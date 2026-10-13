@@ -20,13 +20,15 @@ module AgenticDevBench
   # Executes a benchmark scenario.
   #
   #   $ bundle exec bin/agentic-dev-bench execute add-greeting
-  #   +-----------+---------------------------+
-  #   | Metric    | Value                     |
-  #   +-----------+---------------------------+
-  #   | exit_code | 0                         |
-  #   | success   | true                      |
-  #   | ...       | ...                       |
-  #   +-----------+---------------------------+
+  #   +-----------------+---------------------------+
+  #   | Metric          | Value                     |
+  #   +-----------------+---------------------------+
+  #   | exit_code       | 0                         |
+  #   | success         | true                      |
+  #   | verifier_reward | 1.0                       |
+  #   | verifier_passed | true                      |
+  #   | ...             | ...                       |
+  #   +-----------------+---------------------------+
   #   --- git diff --stat ---
   #   Branch: origin/feature/add-greeting-helper (1 commit(s) ahead)
   #   lib/cline/config.rb | 7 +++++++
@@ -34,9 +36,13 @@ module AgenticDevBench
   #   Full patch: runs/20261007T120000Z-3f9a2b1c/results/git_diff.patch
   #   Run: runs/20261007T120000Z-3f9a2b1c
   #
-  # Scalar metrics (exit code, branch, commit/file counts) render in the
-  # table; the multi-line diff --stat prints verbatim below it, and the
-  # full unified diff is saved to results/git_diff.patch.
+  # Scalar metrics (exit code, success, verifier_reward, verifier_passed,
+  # verifier_exception, branch, commit/file counts) render in the table; the
+  # multi-line diff --stat prints verbatim below it, and the full unified
+  # diff is saved to results/git_diff.patch. Note that +success+ only
+  # reflects the Harbor CLI process; +verifier_passed+ is the verifier's
+  # actual verdict (they can differ when the CLI exits 0 despite a failing
+  # trial).
   #
   # With the +--keep+ option, the GitHub sandbox is preserved after the run:
   #

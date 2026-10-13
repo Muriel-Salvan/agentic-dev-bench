@@ -5,6 +5,7 @@ require 'tmpdir'
 require 'open3'
 require 'shellwords'
 require 'time'
+require 'json'
 
 require_relative 'agentic_dev_bench/version'
 require_relative 'agentic_dev_bench/debug'

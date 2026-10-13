@@ -5,8 +5,16 @@ module AgenticDevBench
   # measures:
   # * Exit code (success/failure flag)
   # * Elapsed time of the run
+  # * Verifier outcome: the reward grade and pass/fail verdict read from
+  #   Harbor's per-trial result, plus any exception that aborted grading
   # * Pushed feature branch(es) vs the sandbox base, with per-branch
   #   commit counts, file lists, and diff --stat summaries
+  #
+  # Note the deliberate separation between +success+ and +verifier_passed+:
+  # +success+ only reflects whether the `harbor run` CLI process exited 0
+  # (Harbor treats orchestration as successful even when the trial inside it
+  # errors), whereas +verifier_passed+ reflects the actual grade produced by
+  # tests/test.sh. Use +verifier_passed+ to judge the benchmark outcome.
   #
   # The workspace directory is removed after metrics collection.
   #
@@ -20,7 +28,9 @@ module AgenticDevBench
   #     started_at: started_time,
   #     finished_at: finished_time
   #   )
-  #   # => [{ "exit_code" => 0, "success" => true, ... }, "...patch..."]
+  #   # => [{ "exit_code" => 0, "success" => true,
+  #   #       "verifier_reward" => 1.0, "verifier_passed" => true, ... },
+  #   #     "...patch..."]
   #
   class Metrics
     # Base branch of every sandbox repository (see GitHubSandbox#provision!,
@@ -31,7 +41,20 @@ module AgenticDevBench
     #
     # Computes the following metrics:
     # * +exit_code+ - The integer exit code from the Harbor run.
-    # * +success+ - Boolean, +true+ if +exit_code+ is 0.
+    # * +success+ - Boolean, +true+ if +exit_code+ is 0. This reflects the
+    #   `harbor run` CLI process only, NOT the verifier's verdict (Harbor
+    #   exits 0 even when a trial errors). Prefer +verifier_passed+ to judge
+    #   the benchmark outcome.
+    # * +verifier_reward+ - The verifier's reward grade (a Float, e.g. 0.0 or
+    #   1.0) read from Harbor's per-trial result.json, or +nil+ when no grade
+    #   could be found.
+    # * +verifier_passed+ - Boolean, +true+ only when +verifier_reward+ is a
+    #   number >= 1.0. Distinct from +success+: it captures the actual grade
+    #   produced by tests/test.sh, including failures that still left the CLI
+    #   exit code at 0.
+    # * +verifier_exception+ - The exception type that aborted the run (e.g.
+    #   +NonZeroAgentExitCodeError+, +RewardFileNotFoundError+), or +nil+ when
+    #   the trial completed without an exception.
     # * +elapsed_seconds+ - The duration of the run in seconds (rounded to 3 decimal places).
     # * +feature_branch+ - Name of the pushed feature branch (empty when none).
     # * +feature_branches+ - All pushed branches ahead of the base (comma-separated).
@@ -58,12 +81,19 @@ module AgenticDevBench
     #   * [1] [String] The full unified diff (empty when no branch was pushed).
     def self.collect(workspace:, run_directory:, github_repository_url:, original_commit:, exit_code:, started_at:, finished_at:)
       Debug.debug("Collecting metrics for #{github_repository_url} @ #{original_commit}")
+      # Read the verifier verdict BEFORE the workspace is cleaned up: Harbor
+      # writes it into <workspace>/jobs/<timestamp>/task__*/result.json.
+      verifier = read_verifier_result(workspace: workspace)
+      Debug.debug("Verifier result: reward=#{verifier[:reward].inspect} passed=#{verifier[:passed]} exception=#{verifier[:exception].inspect}")
       diff_info = compute_git_diff(github_repository_url: github_repository_url, original_commit: original_commit, run_directory: run_directory)
       Debug.debug("Diff stat bytes=#{diff_info[:stat].bytesize} patch bytes=#{diff_info[:patch].bytesize}")
 
       metrics = {
         'exit_code' => exit_code,
         'success' => exit_code.zero?,
+        'verifier_reward' => verifier[:reward],
+        'verifier_passed' => verifier[:passed],
+        'verifier_exception' => verifier[:exception],
         'elapsed_seconds' => (finished_at - started_at).round(3),
         'feature_branch' => diff_info[:primary_branch],
         'feature_branches' => diff_info[:branches].join(', '),
@@ -75,6 +105,75 @@ module AgenticDevBench
     end
 
     private
+
+    # Reads the verifier verdict from Harbor's per-trial result.json.
+    #
+    # With +environment_mode = "separate"+ (see task.toml), Harbor runs
+    # tests/test.sh in its own container and records the grade in
+    # <workspace>/jobs/<timestamp>/task__*/result.json under
+    # +verifier_result.rewards.reward+, plus any +exception_info.exception_type+
+    # that aborted the trial (e.g. NonZeroAgentExitCodeError, RewardFileNotFoundError).
+    #
+    # This is the authoritative benchmark outcome, independent of the
+    # `harbor run` CLI exit code (which stays 0 even when a trial errors).
+    # It must be called before the workspace is cleaned up by Run#execute!.
+    #
+    # When several task__*/result.json files exist (Harbor retries), the trial
+    # with the latest +finished_at+ wins; ties fall back to file mtime.
+    #
+    # @param workspace [String] Path to the workspace directory (contains jobs/).
+    #
+    # @return [Hash] A hash with:
+    #   * +:reward+ [Float, nil] The verifier reward grade, or nil when absent.
+    #   * +:passed+ [Boolean] True only when the reward is a number >= 1.0.
+    #   * +:exception+ [String, nil] The exception type, or nil when none.
+    def self.read_verifier_result(workspace:)
+      absent = { reward: nil, passed: false, exception: nil }
+      return absent.merge(exception: 'ResultFileNotFound') if workspace.nil? || workspace.to_s.empty?
+
+      pattern = File.join(workspace, 'jobs', '**', 'task__*', 'result.json')
+      files = Dir.glob(pattern).select { |path| File.file?(path) }
+      if files.empty?
+        Debug.debug("No Harbor trial result.json found under #{File.join(workspace, 'jobs')}")
+        return absent.merge(exception: 'ResultFileNotFound')
+      end
+
+      result_file = files.max_by do |path|
+        data = safe_parse_json(path)
+        finished = data && data['finished_at']
+        finished.is_a?(String) && !finished.empty? ? finished : File.mtime(path).iso8601
+      end
+      Debug.debug("Reading verifier result from #{result_file}")
+
+      data = safe_parse_json(result_file)
+      return absent.merge(exception: 'ResultFileUnparseable') if data.nil?
+
+      reward = data.dig('verifier_result', 'rewards', 'reward')
+      reward = reward.to_f if reward.is_a?(Numeric)
+      exception = data.dig('exception_info', 'exception_type')
+      exception = nil unless exception.is_a?(String) && !exception.empty?
+
+      {
+        reward: reward,
+        passed: reward.is_a?(Numeric) && reward >= 1.0,
+        exception: exception
+      }
+    end
+
+    # Parses a JSON file, returning nil (with a debug log) on any failure.
+    #
+    # Never raises: a missing, unreadable, or malformed result.json must not
+    # abort metrics collection.
+    #
+    # @param path [String] Path to the JSON file to parse.
+    #
+    # @return [Hash, nil] The parsed object, or nil when it could not be read.
+    def self.safe_parse_json(path)
+      JSON.parse(File.read(path, encoding: 'UTF-8'))
+    rescue StandardError => e
+      Debug.debug("Could not parse JSON at #{path}: #{e.class}: #{e.message}")
+      nil
+    end
 
     # Computes the git diff for branches the agent pushed to the sandbox.
     #

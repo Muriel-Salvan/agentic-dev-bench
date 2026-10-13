@@ -56,7 +56,16 @@ The benchmark definitions contain scenario inputs, not mutable GitHub state. Eac
 
 ## Next steps
 
-The Harbor adapter is deliberately isolated because Harbor's CLI/API evolves. The next implementation step should align `HarborRunner` with the exact Harbor release being used, then add a proper verifier that runs inside the isolated environment and richer metrics such as tests passed, cost, token usage, commits, PR state, and review comments resolved.
+The Harbor adapter is deliberately isolated because Harbor's CLI/API evolves. The next implementation step should align `HarborRunner` with the exact Harbor release being used, then add richer metrics such as cost, token usage, PR state, and review comments resolved.
+
+### Interpreting run results
+
+`result.yml` separates two distinct notions of success:
+
+- `success` — whether the `harbor run` **CLI process** exited `0`. Harbor treats orchestration as successful even when the trial inside it errors, so `success: true` does **not** mean the agent passed.
+- `verifier_reward` / `verifier_passed` / `verifier_exception` — the **verifier's actual verdict**, read from Harbor's per-trial `result.json` (`verifier_result.rewards.reward`). `verifier_passed` is `true` only when the reward is `>= 1.0`. `verifier_exception` records what aborted the trial (e.g. `NonZeroAgentExitCodeError`, `RewardFileNotFoundError`) when grading never produced a pass.
+
+Use `verifier_passed` to judge the benchmark outcome. A run can legitimately show `success: true` alongside `verifier_passed: false` (for example, when the agent crashed before pushing a branch but Harbor's CLI still exited `0`).
 
 The verifier runs in a separate Harbor container (`environment_mode = "separate"`). Because a separate verifier starts from a fresh sandbox without the agent's filesystem changes, the generated `task.toml` declares the agent's `/workspace` as a top-level `artifacts` entry. Harbor collects that directory after the agent finishes and restores it to `/workspace` in the verifier, so `tests/test.sh` grades the agent's actual clone in place (the `destination` field only affects the host-side save path, not the verifier's copy).
 
