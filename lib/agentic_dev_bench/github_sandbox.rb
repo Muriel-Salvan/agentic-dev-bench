@@ -59,7 +59,10 @@ module AgenticDevBench
     #
     # @return [Hash] A hash containing:
     #   * +repository+ [String] The full name of the created repository (owner/repo).
-    #   * +repository_url+ [String] The HTML URL of the created repository.
+    #   * +repository_url+ [String] The HTTPS clone URL of the created repository
+    #     (ending in +.git+). The +.git+ suffix is required: the container
+    #     clones this URL verbatim for +origin+, and agents such as +xaa+
+    #     only recognize GitHub remotes whose URL ends in +.git+.
     #   * +issue_number+ [Integer] The number of the created GitHub issue.
     #   * +issue_url+ [String] The HTML URL of the created issue.
     #   * +original_commit+ [String] The SHA of the commit pushed to the new repository.
@@ -109,7 +112,7 @@ module AgenticDevBench
 
       {
         'repository' => repo.full_name,
-        'repository_url' => repo.html_url,
+        'repository_url' => repo.clone_url,
         'issue_number' => issue.number,
         'issue_url' => issue.html_url,
         'original_commit' => original_commit
