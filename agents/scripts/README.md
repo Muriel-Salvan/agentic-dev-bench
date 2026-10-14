@@ -24,7 +24,7 @@ The custom agent uploads the script into the task container (line endings
 normalized to LF) and runs it as `bash /installed-agent/agent.sh`:
 
 - **User:** the container's agent user (non-root).
-- **Working directory:** `/workspace/repo` — the sandbox repository freshly cloned
+- **Working directory:** `/workspace` — the sandbox repository freshly cloned
   from the GitHub sandbox, with `git` and headlessly authenticated `gh`
   available.
 - **Instruction:** the task prompt (what the issue asks for) is exported in
@@ -39,13 +39,14 @@ normalized to LF) and runs it as `bash /installed-agent/agent.sh`:
 ## Failure output
 
 > **xaa agent state:** `xaa.sh` runs with `X_AEON_AGENTS_CONFIG`
-> pointing at a config that sets `data_dir '/tmp/x_aeon_agents'`
-> (baked into the task image). Session state therefore lives outside
-> `/workspace`, so Harbor's whole-`/workspace` artifact upload into the
-> separate verifier never sees the deep `sessions/...` tree that used
-> to break `docker compose cp` on Windows. The tradeoff is that agent
-> resume state is ephemeral per container and absent from
-> `<trial>/artifacts/workspace/`.
+> pointing at `/etc/x_aeon_agents.rb` (baked into the task image),
+> which sets `data_dir '/logs/agent/xaa'`. That path is a Harbor
+> bind mount, so session state is live on the host at
+> `<trial>/agent/xaa/` during the run — handy for
+> debugging — while staying out of `/workspace`, so Harbor's
+> whole-`/workspace` artifact upload into the separate verifier never
+> sees the deep `sessions/...` tree that breaks `docker compose cp` on
+> Windows.
 
 Harbor caps exec output at 1000 chars inside `NonZeroAgentExitCodeError`
 messages (the `... [N chars truncated] ...` you see in `exception.txt` and

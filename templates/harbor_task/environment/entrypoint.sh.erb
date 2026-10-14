@@ -39,22 +39,24 @@ WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 # `docker compose ... exited (255)` -> RuntimeError). Capture git's
 # real output to a log AND stderr so it lands in `docker logs` and in
 # Harbor's exception output.
-if [ ! -d "$WORKSPACE_DIR/repo/.git" ]; then
-  adb_note "Cloning $REPO_URL into $WORKSPACE_DIR/repo (branch: $BASE_BRANCH)"
-  # The image sets WORKDIR to /workspace, so this process starts
-  # with its cwd inside the directory we are about to delete.
-  # `rm -rf` on the cwd leaves getcwd() failing and `git clone`
-  # aborts with `fatal: Unable to read current working directory`
-  # (exit 128). Step out first so the clone has a valid cwd.
-  cd "$WORKSPACE_DIR"
-  rm -rf "repo"
+if [ ! -d "$WORKSPACE_DIR/.git" ]; then
+  adb_note "Cloning $REPO_URL into $WORKSPACE_DIR (branch: $BASE_BRANCH)"
+  # The image sets WORKDIR to $WORKSPACE_DIR (/workspace), so this
+  # process starts with its cwd inside the very directory we are about
+  # to remove. `rm -rf` on the cwd leaves getcwd() failing and
+  # `git clone` aborts with `fatal: Unable to read current working
+  # directory` (exit 128). Step out to / first so the clone has a valid
+  # cwd, then wipe and re-clone directly into $WORKSPACE_DIR (the repo
+  # lives at /workspace itself, Harbor's standard agent workspace).
+  cd /
+  rm -rf "$WORKSPACE_DIR"
   clone_log="$(mktemp)"
-  if git clone "$REPO_URL" repo >"$clone_log" 2>&1; then
+  if git clone "$REPO_URL" "$WORKSPACE_DIR" >"$clone_log" 2>&1; then
     cat "$clone_log"
     cat "$clone_log" >>"$ADB_LOG" 2>/dev/null || true
     rm -f "$clone_log"
     checkout_log="$(mktemp)"
-    if git -C "$WORKSPACE_DIR/repo" checkout "$BASE_BRANCH" >"$checkout_log" 2>&1; then
+    if git -C "$WORKSPACE_DIR" checkout "$BASE_BRANCH" >"$checkout_log" 2>&1; then
       cat "$checkout_log"
       cat "$checkout_log" >>"$ADB_LOG" 2>/dev/null || true
     else
@@ -80,7 +82,7 @@ if [ ! -d "$WORKSPACE_DIR/repo/.git" ]; then
 else
   # Idempotent: Harbor restores the agent's /workspace into the
   # verifier before tests run, so an existing checkout is left as-is.
-  adb_note "$WORKSPACE_DIR/repo already contains a git checkout; leaving it in place"
+  adb_note "$WORKSPACE_DIR already contains a git checkout; leaving it in place"
 fi
 
 exec "$@"

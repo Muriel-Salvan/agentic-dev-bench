@@ -6,7 +6,7 @@
 # Contract (see agents/scripts/README.md):
 #   * The scenario's `model` value points at this file, relative to the
 #     repository root.
-#   * Runs inside the task container as the agent user, in /workspace/repo
+#   * Runs inside the task container as the agent user, in /workspace
 #     (the cloned sandbox repository), with `git` and authenticated `gh`
 #     ready.
 #   * The task prompt is in the INSTRUCTION environment variable.

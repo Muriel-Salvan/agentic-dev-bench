@@ -11,6 +11,18 @@ environment_type = "docker"
 # (/workspace) in the verifier, so tests/test.sh grades the agent's
 # actual clone in place. `destination` only affects the host-side
 # save path; the verifier always receives the source path.
+#
+# The repo is cloned directly into /workspace (the image WORKDIR), so
+# the artifact source (/workspace) EQUALS the container's working
+# directory. This is deliberate: Harbor empties the artifact dir
+# before restoring it, and on Windows the upload falls back to an
+# exec that inherits the container cwd. If the source were a STRICT
+# ANCESTOR of WORKDIR (e.g. source=/workspace but WORKDIR=/workspace/repo),
+# emptying /workspace would delete /workspace/repo (the cwd) and that
+# exec would die with `chdir to cwd ("/workspace/repo") ... no such file
+# or directory` (exit 127). Keeping them equal avoids that trap.
+# Agent debug/session state is kept OUT of /workspace (it lives under
+# the /logs/agent bind mount; see environment/x_aeon_agents_config.rb).
 artifacts = [
   { source = "/workspace", destination = "workspace" },
 ]
