@@ -49,6 +49,14 @@ GITHUB_TOKEN = "${AGENT_GITHUB_TOKEN}"
 # crash in the headless container. Only the agent container needs it; the
 # separate verifier below just runs tests, so [verifier.env] omits it.
 CLINE_API_KEY = "${CLINE_API_KEY}"
+# OpenRouter API key for the RubyLLM-driven AiAgents helpers (diff
+# interpreter, executor, one-line diff summarizer), configured to the
+# `openrouter/free` model in environment/x_aeon_agents_config.rb.
+# HarborRunner always exports OPENROUTER_API_KEY into the `harbor run`
+# process env, so this interpolation is always populated. Only the agent
+# container needs it; the separate verifier below just runs tests, so
+# [verifier.env] omits it.
+OPENROUTER_API_KEY = "${OPENROUTER_API_KEY}"
 GIT_TERMINAL_PROMPT = "0"
 GH_PROMPT_DISABLED = "1"
 

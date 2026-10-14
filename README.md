@@ -26,6 +26,13 @@ export AGENT_GITHUB_TOKEN=...
 # crashes in the headless container. Injected at run time via Harbor
 # [environment.env] interpolation; never baked into image layers.
 export CLINE_API_KEY=...
+# OpenRouter API key for the RubyLLM-driven x_aeon_agents helpers (diff
+# interpreter, executor, one-line diff summarizer), configured to the
+# `openrouter/free` model in templates/harbor_task/environment/x_aeon_agents_config.rb.
+# XAeonAgents::Config reads it from the environment and installs it into
+# RubyLLM.config; injected at run time via Harbor [environment.env]
+# interpolation, never baked into image layers.
+export OPENROUTER_API_KEY=...
 ```
 
 Before running the sample, replace the source repository and immutable commit in `scenarios/add-greeting.yml`. The sample task is intentionally a scaffold: use a repository whose language/test setup matches the requirements you want to benchmark.
@@ -101,3 +108,5 @@ Use a dedicated GitHub account or GitHub App with minimum required permissions. 
 The agent container gets `AGENT_GITHUB_TOKEN` (or `GITHUB_TOKEN` as fallback) via Harbor `[environment.env]` interpolation at run time. The generated Dockerfile installs `git` + `gh` and wires `gh auth git-credential` as the git credential helper, but never bakes the token into image layers.
 
 The agent container also gets `CLINE_API_KEY` the same way (required; `HarborRunner` fails fast if it is unset). The `cline` CLI authenticates with this key non-interactively (BYOK) instead of launching an OAuth device-code flow that would spawn `xdg-open` and crash in the headless container. Like the GitHub token, it is injected at run time and never baked into image layers; `Debug.redact` masks it in all logs.
+
+The agent container also gets `OPENROUTER_API_KEY` the same way (required; `HarborRunner` fails fast if it is unset). The RubyLLM-driven AiAgents helpers (diff interpreter, executor, one-line diff summarizer), configured to the `openrouter/free` model in `templates/harbor_task/environment/x_aeon_agents_config.rb`, authenticate through it: `XAeonAgents::Config` reads it from the environment and installs it into `RubyLLM.config`. Without it those helpers fall back to an OpenAI-hosted default model and crash with `Missing configuration for OpenAI: openai_api_key`. Like the other keys, it is injected at run time and never baked into image layers; `Debug.redact` masks it in all logs.

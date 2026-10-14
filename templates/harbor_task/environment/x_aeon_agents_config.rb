@@ -26,10 +26,7 @@ data_dir '/logs/agent/xaa'
 # (anthropic/claude-sonnet-4.6). The DSL has no global model setting:
 # `configure_agent` registers a proc per agent class, and the returned
 # hash is merged into the kwargs the class is initialized with. The
-# classes below are all agents that drive the `cline` CLI; the
-# AiAgents helpers (diff interpreter, executor, one-line diff
-# summarizer) talk to OpenRouter via RubyLLM and cannot resolve
-# Cline-hosted model ids, so they keep their default model.
+# classes below are all agents that drive the `cline` CLI.
 %i[
   CoderAgent
   DocumenterAgent
@@ -38,5 +35,19 @@ data_dir '/logs/agent/xaa'
   ReviewResponderAgent
   TesterAgent
 ].each do |agent_class_name|
-  configure_agent(agent_class_name) { { model: 'cline-free/mimo-v2.6-flash' } }
+  configure_agent(agent_class_name) { { model: 'cline-free/muse-spark-1.3-contributor' } }
+end
+
+# The AiAgents helpers (diff interpreter, executor, one-line diff
+# summarizer) talk to OpenRouter via RubyLLM and cannot resolve
+# Cline-hosted model ids, so they use the free OpenRouter model
+# instead. XAeonAgents::Config reads the key from ENV['OPENROUTER_API_KEY']
+# and installs it into RubyLLM.config in setup_ai_agents, so no explicit
+# key setter is needed here -- only the model.
+%i[
+  DiffInterpreterAgent
+  ExecutorAgent
+  OneLineCodeDiffSummarizerAgent
+].each do |agent_class_name|
+  configure_agent(agent_class_name) { { model: 'openrouter/free' } }
 end

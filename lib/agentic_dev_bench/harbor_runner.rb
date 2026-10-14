@@ -62,6 +62,15 @@ module AgenticDevBench
     # lands in image layers (see README for how to obtain a key).
     CLINE_API_KEY_ENV = 'CLINE_API_KEY'
 
+    # Environment variable holding the OpenRouter API key used by the
+    # RubyLLM-driven AiAgents helpers (diff interpreter, executor, one-line
+    # diff summarizer), configured to the `openrouter/free` model in
+    # environment/x_aeon_agents_config.rb. XAeonAgents::Config reads it from
+    # ENV['OPENROUTER_API_KEY'] and installs it into RubyLLM.config in
+    # setup_ai_agents. Injected at run time via [environment.env]
+    # interpolation so it never lands in image layers.
+    OPENROUTER_API_KEY_ENV = 'OPENROUTER_API_KEY'
+
     # Repository root, used to resolve the repo-local custom Harbor agent
     # package (+bash_script_agent/+) and scenario-relative agent script
     # paths.
@@ -117,6 +126,18 @@ module AgenticDevBench
     def self.cline_api_key
       api_key = ENV[CLINE_API_KEY_ENV]
       raise KeyError, "#{CLINE_API_KEY_ENV} must be set" if api_key.nil? || api_key.empty?
+
+      api_key
+    end
+
+    # Resolves the OpenRouter API key handed to the agent container. Never
+    # logs the value itself (see Debug.redact).
+    #
+    # @return [String] The OpenRouter API key for the AiAgents helpers.
+    # @raise [KeyError] If OPENROUTER_API_KEY is not set or empty.
+    def self.openrouter_api_key
+      api_key = ENV[OPENROUTER_API_KEY_ENV]
+      raise KeyError, "#{OPENROUTER_API_KEY_ENV} must be set" if api_key.nil? || api_key.empty?
 
       api_key
     end
@@ -182,6 +203,7 @@ module AgenticDevBench
           # argv, task.toml, or instruction.md.
           agent_token = self.class.agent_token
           cline_api_key = self.class.cline_api_key
+          openrouter_api_key = self.class.openrouter_api_key
           harbor_env = {
             AGENT_TOKEN_ENV => agent_token,
             # Cline API key for the agent container's non-interactive (BYOK)
@@ -193,6 +215,13 @@ module AgenticDevBench
             # Value is redacted by Debug; never interpolate it into argv,
             # task.toml, or instruction.md.
             CLINE_API_KEY_ENV => cline_api_key,
+            # OpenRouter API key for the RubyLLM-driven AiAgents helpers
+            # (configured to `openrouter/free` in x_aeon_agents_config.rb).
+            # Harbor interpolates [environment.env] ${OPENROUTER_API_KEY}
+            # from this process env into the container at run time.
+            # Value is redacted by Debug; never interpolate it into argv,
+            # task.toml, or instruction.md.
+            OPENROUTER_API_KEY_ENV => openrouter_api_key,
             # Force UTF-8 mode: Harbor's secret scrubber calls Path.read_text()
             # without an encoding, which defaults to cp1252 on Windows and turns
             # valid UTF-8 (e.g. emoji in agent output) into
@@ -211,6 +240,7 @@ module AgenticDevBench
           harbor_env['GH_TOKEN'] = ENV['GH_TOKEN'] unless ENV['GH_TOKEN'].nil? || ENV['GH_TOKEN'].empty?
           Debug.debug("GitHub token source: #{ENV[AGENT_TOKEN_ENV].nil? || ENV[AGENT_TOKEN_ENV].empty? ? FALLBACK_TOKEN_ENV : AGENT_TOKEN_ENV} (value redacted)")
           Debug.debug("Cline API key source: #{CLINE_API_KEY_ENV} (value redacted)")
+          Debug.debug("OpenRouter API key source: #{OPENROUTER_API_KEY_ENV} (value redacted)")
           env = harbor_env
           if Debug.enabled?
             # Docker's own debug knobs (harbor invokes docker under the hood) plus
