@@ -41,6 +41,14 @@ artifacts = [
 [environment.env]
 GH_TOKEN = "${AGENT_GITHUB_TOKEN}"
 GITHUB_TOKEN = "${AGENT_GITHUB_TOKEN}"
+# Cline API key for the agent container's non-interactive (BYOK) auth.
+# HarborRunner always exports CLINE_API_KEY into the `harbor run` process
+# env, so this interpolation is always populated. The `cline` CLI (driven
+# by cline-rb via PTY.spawn within xaa) reads it to authenticate without
+# the OAuth device-code flow, which would otherwise spawn xdg-open and
+# crash in the headless container. Only the agent container needs it; the
+# separate verifier below just runs tests, so [verifier.env] omits it.
+CLINE_API_KEY = "${CLINE_API_KEY}"
 GIT_TERMINAL_PROMPT = "0"
 GH_PROMPT_DISABLED = "1"
 

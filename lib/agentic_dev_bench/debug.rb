@@ -76,13 +76,13 @@ module AgenticDevBench
       # @param str [String] Raw string that may contain secrets.
       # @param redactions [Array<String>] Extra secret plaintext values to
       #   mask literally (longest first). The `GITHUB_TOKEN`, `GH_TOKEN`,
-      #   and `AGENT_GITHUB_TOKEN` env values are always included
-      #   automatically when present.
+      #   `AGENT_GITHUB_TOKEN`, and `CLINE_API_KEY` env values are always
+      #   included automatically when present.
       # @return [String] Redacted string safe to log.
       def redact(str, redactions = [])
         s = str.to_s.dup
         secrets = Array(redactions).map(&:to_s).reject(&:empty?)
-        secrets |= [ENV['GITHUB_TOKEN'], ENV['GH_TOKEN'], ENV['AGENT_GITHUB_TOKEN']].compact.reject(&:empty?)
+        secrets |= [ENV['GITHUB_TOKEN'], ENV['GH_TOKEN'], ENV['AGENT_GITHUB_TOKEN'], ENV['CLINE_API_KEY']].compact.reject(&:empty?)
         secrets.sort_by(&:length).reverse.each do |secret|
           s = s.gsub(secret, REDACTED)
         end
@@ -92,6 +92,7 @@ module AgenticDevBench
         s.gsub!(/GITHUB_TOKEN["']?\s*(?:=>|:|=)\s*["']?[^"'\s,}]+/i, "GITHUB_TOKEN=[REDACTED]")
         s.gsub!(/GH_TOKEN["']?\s*(?:=>|:|=)\s*["']?[^"'\s,}]+/i, "GH_TOKEN=[REDACTED]")
         s.gsub!(/AGENT_GITHUB_TOKEN["']?\s*(?:=>|:|=)\s*["']?[^"'\s,}]+/i, "AGENT_GITHUB_TOKEN=[REDACTED]")
+        s.gsub!(/CLINE_API_KEY["']?\s*(?:=>|:|=)\s*["']?[^"'\s,}]+/i, "CLINE_API_KEY=[REDACTED]")
         s
       end
 

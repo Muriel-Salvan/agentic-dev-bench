@@ -51,6 +51,17 @@ module AgenticDevBench
     AGENT_TOKEN_ENV = 'AGENT_GITHUB_TOKEN'
     FALLBACK_TOKEN_ENV = 'GITHUB_TOKEN'
 
+    # Environment variable holding the Cline API key used for
+    # non-interactive (BYOK) authentication inside the Harbor container.
+    # cline-rb shells out to the `cline` binary via PTY.spawn, and that CLI
+    # reads CLINE_API_KEY to authenticate without the OAuth device-code
+    # flow. Without it, an unauthenticated `cline` run tries to open the
+    # authkit.cline.bot device URL in a browser and crashes in the headless
+    # container (Executable not found in $PATH: "xdg-open"). The value is
+    # injected at run time via [environment.env] interpolation so it never
+    # lands in image layers (see README for how to obtain a key).
+    CLINE_API_KEY_ENV = 'CLINE_API_KEY'
+
     # Repository root, used to resolve the repo-local custom Harbor agent
     # package (+bash_script_agent/+) and scenario-relative agent script
     # paths.
@@ -96,6 +107,18 @@ module AgenticDevBench
       raise KeyError, "Either #{AGENT_TOKEN_ENV} or #{FALLBACK_TOKEN_ENV} must be set" if token.nil? || token.empty?
 
       token
+    end
+
+    # Resolves the Cline API key handed to the agent container. Never logs
+    # the value itself (see Debug.redact).
+    #
+    # @return [String] The Cline API key for non-interactive auth.
+    # @raise [KeyError] If CLINE_API_KEY is not set or empty.
+    def self.cline_api_key
+      api_key = ENV[CLINE_API_KEY_ENV]
+      raise KeyError, "#{CLINE_API_KEY_ENV} must be set" if api_key.nil? || api_key.empty?
+
+      api_key
     end
 
     # Initializes a new HarborRunner.
@@ -158,8 +181,18 @@ module AgenticDevBench
           # Values are redacted by Debug; never interpolate the token into
           # argv, task.toml, or instruction.md.
           agent_token = self.class.agent_token
+          cline_api_key = self.class.cline_api_key
           harbor_env = {
             AGENT_TOKEN_ENV => agent_token,
+            # Cline API key for the agent container's non-interactive (BYOK)
+            # auth. Harbor interpolates [environment.env] ${CLINE_API_KEY}
+            # from this process env into the container at run time, so the
+            # `cline` CLI (driven by cline-rb via PTY.spawn) authenticates
+            # with the key instead of launching an OAuth device-code flow
+            # that spawns xdg-open and crashes in the headless container.
+            # Value is redacted by Debug; never interpolate it into argv,
+            # task.toml, or instruction.md.
+            CLINE_API_KEY_ENV => cline_api_key,
             # Force UTF-8 mode: Harbor's secret scrubber calls Path.read_text()
             # without an encoding, which defaults to cp1252 on Windows and turns
             # valid UTF-8 (e.g. emoji in agent output) into
@@ -177,6 +210,7 @@ module AgenticDevBench
           harbor_env['PYTHONPATH'] = [REPO_ROOT, ENV['PYTHONPATH']].compact.reject(&:empty?).join(File::PATH_SEPARATOR)
           harbor_env['GH_TOKEN'] = ENV['GH_TOKEN'] unless ENV['GH_TOKEN'].nil? || ENV['GH_TOKEN'].empty?
           Debug.debug("GitHub token source: #{ENV[AGENT_TOKEN_ENV].nil? || ENV[AGENT_TOKEN_ENV].empty? ? FALLBACK_TOKEN_ENV : AGENT_TOKEN_ENV} (value redacted)")
+          Debug.debug("Cline API key source: #{CLINE_API_KEY_ENV} (value redacted)")
           env = harbor_env
           if Debug.enabled?
             # Docker's own debug knobs (harbor invokes docker under the hood) plus

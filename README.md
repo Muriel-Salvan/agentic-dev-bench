@@ -20,6 +20,12 @@ export GITHUB_OWNER=your-github-user-or-org
 # Optional: least-privilege token handed to the agent container
 # (contents:write, pull-requests:write, issues:read). Falls back to GITHUB_TOKEN.
 export AGENT_GITHUB_TOKEN=...
+# Cline API key for the agent container's non-interactive (BYOK) auth.
+# The `cline` CLI (driven by cline-rb via PTY.spawn) reads it so it does
+# not fall back to an OAuth device-code flow that spawns xdg-open and
+# crashes in the headless container. Injected at run time via Harbor
+# [environment.env] interpolation; never baked into image layers.
+export CLINE_API_KEY=...
 ```
 
 Before running the sample, replace the source repository and immutable commit in `scenarios/add-greeting.yml`. The sample task is intentionally a scaffold: use a repository whose language/test setup matches the requirements you want to benchmark.
@@ -93,3 +99,5 @@ The verifier runs in a separate Harbor container (`environment_mode = "separate"
 Use a dedicated GitHub account or GitHub App with minimum required permissions. Do not give an agent credentials that can access unrelated repositories.
 
 The agent container gets `AGENT_GITHUB_TOKEN` (or `GITHUB_TOKEN` as fallback) via Harbor `[environment.env]` interpolation at run time. The generated Dockerfile installs `git` + `gh` and wires `gh auth git-credential` as the git credential helper, but never bakes the token into image layers.
+
+The agent container also gets `CLINE_API_KEY` the same way (required; `HarborRunner` fails fast if it is unset). The `cline` CLI authenticates with this key non-interactively (BYOK) instead of launching an OAuth device-code flow that would spawn `xdg-open` and crash in the headless container. Like the GitHub token, it is injected at run time and never baked into image layers; `Debug.redact` masks it in all logs.
