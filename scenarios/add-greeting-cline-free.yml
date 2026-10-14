@@ -2,7 +2,7 @@ name: Add greeting helper
 
 source:
   repository: Muriel-Salvan/cline-rb
-  commit: v1.1.1
+  commit: v1.1.3
 
 sandbox:
   owner_env: GITHUB_OWNER
