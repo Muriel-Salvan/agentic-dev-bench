@@ -6,8 +6,9 @@
 # Contract (see agents/scripts/README.md):
 #   * The scenario's `model` value points at this file, relative to the
 #     repository root.
-#   * Runs inside the task container as the agent user, in /workspace (the
-#     cloned sandbox repository), with `git` and authenticated `gh` ready.
+#   * Runs inside the task container as the agent user, in /workspace/repo
+#     (the cloned sandbox repository), with `git` and authenticated `gh`
+#     ready.
 #   * The task prompt is in the INSTRUCTION environment variable.
 #   * Exit 0 only when the agent considers the task done; any non-zero exit
 #     fails the trial (the separate verifier still decides the final reward).

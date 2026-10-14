@@ -26,7 +26,7 @@ module AgenticDevBench
   #   runner = AgenticDevBench::HarborRunner.new(
   #     scenario: scenario,
   #     sandbox: sandbox_info,
-  #     workspace: workspace_path
+  #     run_directory: run_directory
   #   )
   #   result = runner.run!
   #   # => #<struct AgenticDevBench::HarborRunner::Result
@@ -103,12 +103,11 @@ module AgenticDevBench
     # @param scenario [AgenticDevBench::Scenario] The benchmark scenario to run.
     # @param sandbox [Hash] The sandbox repository information (as returned by
     #   GitHubSandbox#provision!).
-    # @param workspace [String] The path to the workspace directory where the
-    #   task files will be written and the Harbor run will be executed.
-    def initialize(scenario:, sandbox:, workspace:)
+    # @param run_directory [String] The path to the run_directory.
+    def initialize(scenario:, sandbox:, run_directory:)
       @scenario = scenario
       @sandbox = sandbox
-      @workspace = workspace
+      @run_directory = run_directory
     end
 
     # Runs the agent in the Harbor environment.
@@ -124,72 +123,72 @@ module AgenticDevBench
     #
     # @raise [SystemCallError] If the Harbor CLI command fails to execute.
     def run!
-      task_dir = File.join(@workspace, 'task')
-      Debug.debug("Preparing Harbor task directory in #{task_dir}")
-      FileUtils.mkdir_p(task_dir)
+      Debug.with_debug_dir(File.join(@run_directory, 'task'), 'Harbor task directory') do |task_dir|
+        # Harbor 0.24.0 task directory structure (instruction.md, task.toml,
+        # environment/Dockerfile, environment/entrypoint.sh, tests/test.sh) is
+        # rendered from the ERB templates in TEMPLATES_DIR; see #write_task_files.
+        write_task_files(task_dir)
 
-      # Harbor 0.24.0 task directory structure (instruction.md, task.toml,
-      # environment/Dockerfile, environment/entrypoint.sh, tests/test.sh) is
-      # rendered from the ERB templates in TEMPLATES_DIR; see #write_task_files.
-      write_task_files(task_dir)
-
-      # Harbor 0.24.0 CLI: harbor run -p <task_directory> -a <agent> -m <model>
-      # The old `--task <file>` syntax is no longer supported in Harbor 0.24.0
-      # In debug mode we pass Harbor's own `--debug` flag (listed under
-      # `harbor run --help` Job Settings) plus Docker verbosity below
-      # (harbor shells out to docker for builds/runs).
-      agent_name = @scenario.agent.fetch('name')
-      model = @scenario.agent.fetch('model')
-      # For the repo-local bash-script agent, `model` names the bash script
-      # implementing the agent; resolve it to a validated absolute host
-      # path so the custom agent can upload it into the container.
-      model = self.class.resolve_agent_script(model) if agent_name.start_with?(BASH_SCRIPT_AGENT_PREFIX)
-      argv = [
-        'harbor', 'run',
-        '--yes',
-        '--path', task_dir,
-        '--agent', agent_name,
-        '--model', model,
-        '--jobs-dir', File.join(@workspace, 'jobs')
-      ]
-      argv << '--debug' if Debug.enabled?
-      Debug.debug("Executing Harbor run with command: #{argv.inspect}")
-      # Harbor interpolates [environment.env] ${VAR} references from this
-      # process's environment, so export the resolved agent token under
-      # the name task.toml expects. Explicit (not shell-inherited) so
-      # Harbor sees it even when spawned via bundler sanitization.
-      # Values are redacted by Debug; never interpolate the token into
-      # argv, task.toml, or instruction.md.
-      agent_token = self.class.agent_token
-      harbor_env = {
-        AGENT_TOKEN_ENV => agent_token,
-        # Force UTF-8 mode: Harbor's secret scrubber calls Path.read_text()
-        # without an encoding, which defaults to cp1252 on Windows and turns
-        # valid UTF-8 (e.g. emoji in agent output) into
-        # "'charmap' codec can't decode byte 0x90" skips. PYTHONUTF8=1 makes
-        # open()/read_text() default to UTF-8; PYTHONIOENCODING keeps Harbor's
-        # own stdout/stderr UTF-8 through our Open3 pipes. Always set (not
-        # debug-only) because scrubbing runs on every `harbor run`.
-        'PYTHONUTF8' => '1',
-        'PYTHONIOENCODING' => 'utf-8'
-      }
-      # Let the harbor process import the repo-local custom agent package
-      # (bash_script_agent.agent:BashScriptAgent) referenced by scenarios as
-      # an --agent import path. Prepended so a repo-local package wins over
-      # any same-named module elsewhere; harmless for catalog agents.
-      harbor_env['PYTHONPATH'] = [REPO_ROOT, ENV['PYTHONPATH']].compact.reject(&:empty?).join(File::PATH_SEPARATOR)
-      harbor_env['GH_TOKEN'] = ENV['GH_TOKEN'] unless ENV['GH_TOKEN'].nil? || ENV['GH_TOKEN'].empty?
-      Debug.debug("GitHub token source: #{ENV[AGENT_TOKEN_ENV].nil? || ENV[AGENT_TOKEN_ENV].empty? ? FALLBACK_TOKEN_ENV : AGENT_TOKEN_ENV} (value redacted)")
-      env = harbor_env
-      if Debug.enabled?
-        # Docker's own debug knobs (harbor invokes docker under the hood) plus
-        # PYTHONUNBUFFERED so Harbor's `--debug` lines aren't block-buffered
-        # through the Open3.popen3 pipes (which Debug streams live).
-        env = harbor_env.merge('DOCKER_DEBUG' => '1', 'BUILDKIT_PROGRESS' => 'plain', 'PYTHONUNBUFFERED' => '1')
-        Debug.debug("Harbor debug env: #{Debug.redact({ 'DOCKER_DEBUG' => '1', 'BUILDKIT_PROGRESS' => 'plain', 'PYTHONUNBUFFERED' => '1' }.inspect)}")
+        # Harbor 0.24.0 CLI: harbor run -p <task_directory> -a <agent> -m <model>
+        # The old `--task <file>` syntax is no longer supported in Harbor 0.24.0
+        # In debug mode we pass Harbor's own `--debug` flag (listed under
+        # `harbor run --help` Job Settings) plus Docker verbosity below
+        # (harbor shells out to docker for builds/runs).
+        agent_name = @scenario.agent.fetch('name')
+        model = @scenario.agent.fetch('model')
+        # For the repo-local bash-script agent, `model` names the bash script
+        # implementing the agent; resolve it to a validated absolute host
+        # path so the custom agent can upload it into the container.
+        model = self.class.resolve_agent_script(model) if agent_name.start_with?(BASH_SCRIPT_AGENT_PREFIX)
+        Debug.with_debug_dir(File.join(@run_directory, 'jobs'), 'Harbor jobs directory') do |jobs_dir|
+          argv = [
+            'harbor', 'run',
+            '--yes',
+            '--path', task_dir,
+            '--agent', agent_name,
+            '--model', model,
+            '--jobs-dir', jobs_dir
+          ]
+          argv << '--debug' if Debug.enabled?
+          Debug.debug("Executing Harbor run with command: #{argv.inspect}")
+          # Harbor interpolates [environment.env] ${VAR} references from this
+          # process's environment, so export the resolved agent token under
+          # the name task.toml expects. Explicit (not shell-inherited) so
+          # Harbor sees it even when spawned via bundler sanitization.
+          # Values are redacted by Debug; never interpolate the token into
+          # argv, task.toml, or instruction.md.
+          agent_token = self.class.agent_token
+          harbor_env = {
+            AGENT_TOKEN_ENV => agent_token,
+            # Force UTF-8 mode: Harbor's secret scrubber calls Path.read_text()
+            # without an encoding, which defaults to cp1252 on Windows and turns
+            # valid UTF-8 (e.g. emoji in agent output) into
+            # "'charmap' codec can't decode byte 0x90" skips. PYTHONUTF8=1 makes
+            # open()/read_text() default to UTF-8; PYTHONIOENCODING keeps Harbor's
+            # own stdout/stderr UTF-8 through our Open3 pipes. Always set (not
+            # debug-only) because scrubbing runs on every `harbor run`.
+            'PYTHONUTF8' => '1',
+            'PYTHONIOENCODING' => 'utf-8'
+          }
+          # Let the harbor process import the repo-local custom agent package
+          # (bash_script_agent.agent:BashScriptAgent) referenced by scenarios as
+          # an --agent import path. Prepended so a repo-local package wins over
+          # any same-named module elsewhere; harmless for catalog agents.
+          harbor_env['PYTHONPATH'] = [REPO_ROOT, ENV['PYTHONPATH']].compact.reject(&:empty?).join(File::PATH_SEPARATOR)
+          harbor_env['GH_TOKEN'] = ENV['GH_TOKEN'] unless ENV['GH_TOKEN'].nil? || ENV['GH_TOKEN'].empty?
+          Debug.debug("GitHub token source: #{ENV[AGENT_TOKEN_ENV].nil? || ENV[AGENT_TOKEN_ENV].empty? ? FALLBACK_TOKEN_ENV : AGENT_TOKEN_ENV} (value redacted)")
+          env = harbor_env
+          if Debug.enabled?
+            # Docker's own debug knobs (harbor invokes docker under the hood) plus
+            # PYTHONUNBUFFERED so Harbor's `--debug` lines aren't block-buffered
+            # through the Open3.popen3 pipes (which Debug streams live).
+            env = harbor_env.merge('DOCKER_DEBUG' => '1', 'BUILDKIT_PROGRESS' => 'plain', 'PYTHONUNBUFFERED' => '1')
+            Debug.debug("Harbor debug env: #{Debug.redact({ 'DOCKER_DEBUG' => '1', 'BUILDKIT_PROGRESS' => 'plain', 'PYTHONUNBUFFERED' => '1' }.inspect)}")
+          end
+          stdout, stderr, status = Debug.debug_exec(env, *argv)
+          Result.new(status.exitstatus, stdout, stderr)
+        end
       end
-      stdout, stderr, status = Debug.debug_exec(env, *argv)
-      Result.new(status.exitstatus, stdout, stderr)
     end
 
     private

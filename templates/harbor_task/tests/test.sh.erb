@@ -22,9 +22,9 @@ trap 'printf "0
 # in place (its `origin` points at the GitHub sandbox and carries
 # the pushed branch). WORKSPACE_DIR can override the location if
 # it ever differs from the image's /workspace WORKDIR.
-REPO_DIR="${WORKSPACE_DIR:-/workspace}"
+REPO_DIR="${WORKSPACE_DIR:-/workspace}/repo"
 if ! git -C "$REPO_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  echo "FAIL: $REPO_DIR is not a git workspace (set WORKSPACE_DIR to the agent workspace)" >&2
+  echo "FAIL: $REPO_DIR is not a git repo (set WORKSPACE_DIR to the agent workspace)" >&2
   printf '0
 ' > "$REWARD_FILE" 2>/dev/null || true
   exit 1

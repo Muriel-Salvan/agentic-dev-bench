@@ -11,4 +11,4 @@
 # transient files). /tmp is world-writable for the non-root agent user and
 # ephemeral per container, which is fine -- the verifier grades the repo,
 # not the agent's resume state.
-data_dir '/tmp/x_aeon_agents'
+data_dir '/workspace/xaa'

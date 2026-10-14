@@ -42,6 +42,31 @@ module AgenticDevBench
         puts "[DEBUG #{Time.now.utc.strftime('%Y-%m-%dT%H:%M:%SZ')}] #{msg}"
       end
 
+      # Create a debug directory.
+      # A debug directory is removed unless Debug.enabled?
+      #
+      # @param dir [String] The directory path.
+      # @param desc [String] A simple directory description for debug output.
+      # @yield [#call(dir)] Code called with directory created.
+      # @yieldparam dir [String] The directory created.
+      # @return [Object] The result of the yielded code.
+      def with_debug_dir(dir, desc)
+        result = nil
+        Debug.debug("Create directory #{dir} (#{desc})")
+        FileUtils.mkdir_p(dir)
+        begin
+          result = yield dir
+        ensure
+          if Debug.enabled?
+            Debug.debug("Keep directory for debug #{dir} (#{desc})")
+          else
+            Debug.debug("Remove directory #{dir} (#{desc})")
+            FileUtils.rm_rf(dir)
+          end
+        end
+        result
+      end
+
       # Redact credentials from a string before logging.
       #
       # Strips `x-access-token:...@`, `:password@`, and

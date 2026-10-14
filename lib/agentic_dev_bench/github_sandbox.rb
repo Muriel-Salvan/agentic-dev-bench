@@ -80,8 +80,7 @@ module AgenticDevBench
       Debug.debug("GitHub repository created: #{repo.full_name}")
 
       original_commit = nil
-      dir = Dir.mktmpdir('agentic-dev-bench-source', @run.directory)
-      begin
+      Debug.with_debug_dir(File.join(@run.directory, 'git-source'), 'Github source clone') do |dir|
         Debug.debug("Cloning source repository: #{source} to #{dir}")
         git = with_git_trace { Git.clone("https://github.com/#{source}.git", dir) }
         Debug.debug('Source repository cloned successfully')
@@ -98,12 +97,6 @@ module AgenticDevBench
         Debug.debug('Pushing to origin main')
         with_git_trace { git.push('origin', 'HEAD:refs/heads/main') }
         Debug.debug('Push completed')
-      ensure
-        if Debug.enabled?
-          Debug.debug("Keeping temporary clone directory #{dir}")
-        else
-          FileUtils.rm_rf(dir)
-        end
       end
 
       Debug.debug("Creating GitHub issue in #{@owner}/#{@name}")

@@ -43,7 +43,7 @@ RUN mkdir -p /etc/apt/keyrings \
 # Non-secret git/gh defaults baked into the image. Credentials
 # themselves are injected at run time via [environment.env]
 # (GH_TOKEN/GITHUB_TOKEN) so they never appear in image layers.
-RUN git config --global --add safe.directory /workspace \
+RUN git config --global --add safe.directory /workspace/repo \
   && git config --global user.name "agentic-dev-bench" \
   && git config --global user.email "agentic-dev-bench@local" \
   && git config --global credential.helper "" \
@@ -76,11 +76,13 @@ ENV REPO_URL="<%= @sandbox['repository_url'] %>" BASE_BRANCH="main"
 # inside it breaks `docker compose cp` on Windows (MAX_PATH /
 # transient files). The env-var config file is evaluated last by
 # XAeonAgents::Config.load, so it wins over ~/ and ./. configs.
-COPY x_aeon_agents_config.rb /etc/x_aeon_agents.rb
-ENV X_AEON_AGENTS_CONFIG=/etc/x_aeon_agents.rb
+COPY x_aeon_agents_config.rb /workspace/x_aeon_agents.rb
+ENV X_AEON_AGENTS_CONFIG=/workspace/x_aeon_agents.rb
 
-# Set the working directory inside the container
-WORKDIR /workspace
+# Set the working directory inside the container to the cloned sandbox
+# repository (adb-entrypoint.sh clones the GitHub sandbox into
+# /workspace/repo).
+WORKDIR /workspace/repo
 
 # Harbor overrides the image CMD (`sh -c "sleep infinity"`) but honors
 # ENTRYPOINT, so adb-entrypoint.sh runs the clone first, then hands

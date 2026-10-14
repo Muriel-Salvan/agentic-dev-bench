@@ -16,12 +16,10 @@ module AgenticDevBench
   # errors), whereas +verifier_passed+ reflects the actual grade produced by
   # tests/test.sh. Use +verifier_passed+ to judge the benchmark outcome.
   #
-  # The workspace directory is removed after metrics collection.
-  #
   # == Example
   #
   #   metrics, patch = AgenticDevBench::Metrics.collect(
-  #     workspace: workspace_path,
+  #     run_directory: run_directory,
   #     github_repository_url: repo_url,
   #     original_commit: original_sha,
   #     exit_code: exit_code,
@@ -62,12 +60,9 @@ module AgenticDevBench
     # * +files_changed+ - Number of files changed on the feature branch vs the base.
     # * +git_diff_stat+ - The git diff --stat output for the pushed branch(es).
     #
-    # After collection, the +workspace+ directory is deleted.
-    #
     # The +github_repository_url+ and +original_commit+ parameters
     # are used to clone the sandbox repository and compute the diff.
     #
-    # @param workspace [String] Path to the workspace directory to clean up.
     # @param run_directory [String] Path to the run directory. The temporary
     #   clone used to compute the diff is created inside it.
     # @param github_repository_url [String] The HTTPS URL of the sandbox repository.
@@ -79,11 +74,9 @@ module AgenticDevBench
     # @return [Array<Hash, String>] A 2-element array:
     #   * [0] [Hash] The collected metrics (YAML-safe scalars only).
     #   * [1] [String] The full unified diff (empty when no branch was pushed).
-    def self.collect(workspace:, run_directory:, github_repository_url:, original_commit:, exit_code:, started_at:, finished_at:)
+    def self.collect(run_directory:, github_repository_url:, original_commit:, exit_code:, started_at:, finished_at:)
       Debug.debug("Collecting metrics for #{github_repository_url} @ #{original_commit}")
-      # Read the verifier verdict BEFORE the workspace is cleaned up: Harbor
-      # writes it into <workspace>/jobs/<timestamp>/task__*/result.json.
-      verifier = read_verifier_result(workspace: workspace)
+      verifier = read_verifier_result(run_directory: run_directory)
       Debug.debug("Verifier result: reward=#{verifier[:reward].inspect} passed=#{verifier[:passed]} exception=#{verifier[:exception].inspect}")
       diff_info = compute_git_diff(github_repository_url: github_repository_url, original_commit: original_commit, run_directory: run_directory)
       Debug.debug("Diff stat bytes=#{diff_info[:stat].bytesize} patch bytes=#{diff_info[:patch].bytesize}")
@@ -110,31 +103,27 @@ module AgenticDevBench
     #
     # With +environment_mode = "separate"+ (see task.toml), Harbor runs
     # tests/test.sh in its own container and records the grade in
-    # <workspace>/jobs/<timestamp>/task__*/result.json under
+    # <run_directory>/jobs/<timestamp>/task__*/result.json under
     # +verifier_result.rewards.reward+, plus any +exception_info.exception_type+
     # that aborted the trial (e.g. NonZeroAgentExitCodeError, RewardFileNotFoundError).
-    #
-    # This is the authoritative benchmark outcome, independent of the
-    # `harbor run` CLI exit code (which stays 0 even when a trial errors).
-    # It must be called before the workspace is cleaned up by Run#execute!.
     #
     # When several task__*/result.json files exist (Harbor retries), the trial
     # with the latest +finished_at+ wins; ties fall back to file mtime.
     #
-    # @param workspace [String] Path to the workspace directory (contains jobs/).
+    # @param run_directory [String] Path to the run_directory directory (contains jobs/).
     #
     # @return [Hash] A hash with:
     #   * +:reward+ [Float, nil] The verifier reward grade, or nil when absent.
     #   * +:passed+ [Boolean] True only when the reward is a number >= 1.0.
     #   * +:exception+ [String, nil] The exception type, or nil when none.
-    def self.read_verifier_result(workspace:)
+    def self.read_verifier_result(run_directory:)
       absent = { reward: nil, passed: false, exception: nil }
-      return absent.merge(exception: 'ResultFileNotFound') if workspace.nil? || workspace.to_s.empty?
+      return absent.merge(exception: 'ResultFileNotFound') if run_directory.nil? || run_directory.to_s.empty?
 
-      pattern = File.join(workspace, 'jobs', '**', 'task__*', 'result.json')
+      pattern = File.join(run_directory, 'jobs', '**', 'task__*', 'result.json')
       files = Dir.glob(pattern).select { |path| File.file?(path) }
       if files.empty?
-        Debug.debug("No Harbor trial result.json found under #{File.join(workspace, 'jobs')}")
+        Debug.debug("No Harbor trial result.json found under #{File.join(run_directory, 'jobs')}")
         return absent.merge(exception: 'ResultFileNotFound')
       end
 
@@ -199,8 +188,7 @@ module AgenticDevBench
     def self.compute_git_diff(github_repository_url:, original_commit:, run_directory:)
       empty = { branches: [], primary_branch: '', commits_ahead: 0, files_changed: 0, stat: '', patch: '' }
       # Clone the GitHub sandbox repository into a temporary directory inside the run directory
-      temp_dir = Dir.mktmpdir('agentic-dev-bench-git', run_directory)
-      begin
+      Debug.with_debug_dir(File.join(run_directory, 'git-diff'), 'Github result clone') do |temp_dir|
         Debug.debug("Cloning sandbox for diff into #{temp_dir} (URL redacted)")
         github_url = github_repository_url.gsub('https://', 'https://x-access-token:' + ENV.fetch('GITHUB_TOKEN') + '@')
 
@@ -228,14 +216,6 @@ module AgenticDevBench
           Debug.debug("Pushed feature branches: #{branches.inspect}")
 
           build_branch_diffs(branches: branches, original_commit: original_commit)
-        end
-      ensure
-        # Clean up the temporary directory, unless debugging (keep it for inspection)
-        if Debug.enabled?
-          Debug.debug("Keeping diff temp dir #{temp_dir}")
-        else
-          Debug.debug("Removing diff temp dir #{temp_dir}")
-          FileUtils.rm_rf(temp_dir)
         end
       end
     end

@@ -32,7 +32,7 @@ class BashScriptAgent(BaseInstalledAgent):
     * Uploaded to the container with CRLF line endings normalized to LF
       (the benchmark repository is developed on Windows).
     * Executed as ``bash /installed-agent/agent.sh`` as the agent user.
-    * cwd is ``/workspace`` (the cloned sandbox repository).
+    * cwd is ``/workspace/repo`` (the cloned GitHub sandbox repository).
     * The task prompt is available in the ``INSTRUCTION`` environment
       variable.
     * A non-zero exit code fails the trial (Harbor raises
@@ -58,8 +58,9 @@ class BashScriptAgent(BaseInstalledAgent):
     # every installed agent.
     REMOTE_SCRIPT_PATH = "/installed-agent/agent.sh"
 
-    # Working directory the script runs in (the cloned sandbox repository).
-    WORKDIR = "/workspace"
+    # Container WORKDIR is /workspace/repo: that is where adb-entrypoint.sh
+    # clones the GitHub sandbox repository (see Dockerfile.erb WORKDIR).
+    WORKDIR = "/workspace/repo"
 
     # Name of the full-transcript file written into the container's
     # agent-log mount (``self.environment_logs_dir``, i.e. ``/logs/agent``

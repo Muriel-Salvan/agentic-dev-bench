@@ -49,7 +49,7 @@ agent:
 
 Script contract (see `agents/scripts/README.md`):
 
-- Runs as the agent user in `/workspace` (the cloned sandbox repository), with `git` and authenticated `gh` available.
+- Runs as the agent user in `/workspace/repo` (the cloned GitHub sandbox repository), with `git` and authenticated `gh` available.
 - The task prompt is exported in the `INSTRUCTION` environment variable.
 - Exit non-zero to fail the trial; the scenario's separate verifier still decides the final reward.
 

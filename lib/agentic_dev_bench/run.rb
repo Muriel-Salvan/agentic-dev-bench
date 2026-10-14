@@ -22,6 +22,15 @@ module AgenticDevBench
   #   puts "Run: runs/#{run_id}"
   #
   class Run
+    class << self
+      # @return [Integer] Global next run index
+      def next_run_index
+        @next_run_index ||= 0
+        @next_run_index += 1
+        @next_run_index
+      end
+    end
+
     # @return [AgenticDevBench::Scenario] The scenario being executed.
     attr_reader :scenario
 
@@ -40,7 +49,7 @@ module AgenticDevBench
     # @param scenario [AgenticDevBench::Scenario] The scenario to execute.
     def initialize(scenario)
       @scenario = scenario
-      @id = "#{Time.now.utc.strftime('%Y%m%dT%H%M%SZ')}-#{SecureRandom.hex(4)}"
+      @id = "#{Time.now.utc.strftime('%Y%m%d%H%M%S')}#{Run.next_run_index}"
       @directory = File.expand_path(File.join('runs', @id))
     end
 
@@ -50,10 +59,9 @@ module AgenticDevBench
     # 1. Creates the run directory.
     # 2. Provisions a GitHub sandbox repository (via GitHubSandbox).
     # 3. Writes sandbox metadata to +sandbox.yml+.
-    # 4. Creates the workspace directory.
-    # 5. Runs the Harbor agent (via HarborRunner).
-    # 6. Collects metrics.
-    # 7. Saves stdout, stderr, and result to the run directory.
+    # 4. Runs the Harbor agent (via HarborRunner).
+    # 5. Collects metrics.
+    # 6. Saves stdout, stderr, and result to the run directory.
     #
     # @param keep [Boolean] When +true+, the GitHub sandbox is preserved
     #   after the run completes (useful for debugging). Default: +false+.
@@ -78,47 +86,33 @@ module AgenticDevBench
           Debug.debug("Wrote sandbox.yml")
         end
 
-        workspace = File.join(@directory, 'workspace')
-        FileUtils.mkdir_p(workspace)
-        begin
-          Debug.debug("Created workspace: #{workspace}")
+        Debug.debug("Running Harbor agent for #{@scenario.id}...")
+        started_at = Time.now
+        result = HarborRunner.new(scenario: @scenario, sandbox: sandbox_info, run_directory: @directory).run!
+        finished_at = Time.now
+        Debug.debug("Harbor run finished with exit_code=#{result.exit_code}")
+        log_harbor_failure_details(@directory) if Debug.enabled? && !result.exit_code.zero?
 
-          Debug.debug("Running Harbor agent for #{@scenario.id}...")
-          started_at = Time.now
-          result = HarborRunner.new(scenario: @scenario, sandbox: sandbox_info, workspace: workspace).run!
-          finished_at = Time.now
-          Debug.debug("Harbor run finished with exit_code=#{result.exit_code}")
-          log_harbor_failure_details(workspace) if Debug.enabled? && !result.exit_code.zero?
+        Debug.debug("Collecting metrics...")
+        metrics, patch = Metrics.collect(
+          run_directory: @directory,
+          github_repository_url: sandbox_info['repository_url'],
+          original_commit: sandbox_info['original_commit'],
+          exit_code: result.exit_code,
+          started_at: started_at,
+          finished_at: finished_at
+        )
+        Debug.debug("Collected metrics: #{metrics.inspect}")
 
-          Debug.debug("Collecting metrics...")
-          metrics, patch = Metrics.collect(
-            workspace: workspace,
-            run_directory: @directory,
-            github_repository_url: sandbox_info['repository_url'],
-            original_commit: sandbox_info['original_commit'],
-            exit_code: result.exit_code,
-            started_at: started_at,
-            finished_at: finished_at
-          )
-          Debug.debug("Collected metrics: #{metrics.inspect}")
-
-          results_dir = File.join(@directory, 'results')
-          FileUtils.mkdir_p(results_dir)
-          File.write(File.join(results_dir, 'stdout.log'), result.stdout)
-          File.write(File.join(results_dir, 'stderr.log'), result.stderr)
-          File.write(File.join(results_dir, 'result.yml'), metrics.to_yaml)
-          # Full unified diff kept out of result.yml (multi-KB noise there);
-          # saved alongside for inspection. Empty when no branch was pushed.
-          File.write(File.join(results_dir, 'git_diff.patch'), patch)
-          Debug.debug("Saved results to #{results_dir} (patch bytes=#{patch.bytesize})")
-        ensure
-          if Debug.enabled?
-            Debug.debug('Workspace kept for debugging')
-          else
-            FileUtils.rm_rf(workspace)
-            Debug.debug('Workspace cleaned')
-          end
-        end
+        results_dir = File.join(@directory, 'results')
+        FileUtils.mkdir_p(results_dir)
+        File.write(File.join(results_dir, 'stdout.log'), result.stdout)
+        File.write(File.join(results_dir, 'stderr.log'), result.stderr)
+        File.write(File.join(results_dir, 'result.yml'), metrics.to_yaml)
+        # Full unified diff kept out of result.yml (multi-KB noise there);
+        # saved alongside for inspection. Empty when no branch was pushed.
+        File.write(File.join(results_dir, 'git_diff.patch'), patch)
+        Debug.debug("Saved results to #{results_dir} (patch bytes=#{patch.bytesize})")
 
         [@id, metrics]
       ensure
@@ -131,22 +125,22 @@ module AgenticDevBench
     # Debug-only failure pointer: Harbor deletes the failed container (so
     # `docker logs` is unrecoverable) and the compose error surfaced on stdout
     # is a bare `exited (255)` with `Stderr: None`. The container's own output
-    # survives in the kept workspace (debug mode skips workspace cleanup):
+    # survives in the run_directory:
     # each trial's exception.txt / trial.log, plus entrypoint.log which the
     # container entrypoint tees to the Harbor /logs/artifacts convention mount
     # (<trial>/artifacts/logs/artifacts/entrypoint.log). Prints redacted tails
     # so the next `exited (255)` is diagnosable without digging.
     #
-    # @param workspace [String] Path to the workspace directory containing jobs/.
-    def log_harbor_failure_details(workspace)
+    # @param run_directory [String] Path to the run_directory directory containing jobs/.
+    def log_harbor_failure_details(run_directory)
       patterns = [
-        File.join(workspace, 'jobs', '**', 'exception.txt'),
-        File.join(workspace, 'jobs', '**', 'trial.log'),
-        File.join(workspace, 'jobs', '**', 'entrypoint.log')
+        File.join(run_directory, 'jobs', '**', 'exception.txt'),
+        File.join(run_directory, 'jobs', '**', 'trial.log'),
+        File.join(run_directory, 'jobs', '**', 'entrypoint.log')
       ]
       files = patterns.flat_map { |pattern| Dir.glob(pattern) }.uniq.sort
       if files.empty?
-        Debug.debug('No Harbor failure logs found under workspace/jobs (exception.txt, trial.log, entrypoint.log)')
+        Debug.debug("No Harbor failure logs found under #{run_directory}/jobs (exception.txt, trial.log, entrypoint.log)")
         return
       end
 

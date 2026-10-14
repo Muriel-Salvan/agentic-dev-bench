@@ -24,7 +24,7 @@ The custom agent uploads the script into the task container (line endings
 normalized to LF) and runs it as `bash /installed-agent/agent.sh`:
 
 - **User:** the container's agent user (non-root).
-- **Working directory:** `/workspace` — the sandbox repository freshly cloned
+- **Working directory:** `/workspace/repo` — the sandbox repository freshly cloned
   from the GitHub sandbox, with `git` and headlessly authenticated `gh`
   available.
 - **Instruction:** the task prompt (what the issue asks for) is exported in
