@@ -28,7 +28,7 @@ agent:
   #   model: agents/scripts/example-agent.sh
   name: cline-cli
   # Model identifier (Harbor agent registry)
-  model: cline:cline-free/step-5-preview
+  model: cline:cline-free/mimo-v2.6-flash
 
 evaluation:
   ruby: "require 'cline' ; exit(Cline.config.greeting == 'Hello, world!' ? 0 : 1)"

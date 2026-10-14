@@ -19,3 +19,24 @@
 # by chown only (prepare_logs_for_host) and is never uploaded, so it is
 # both live on the host for debugging and safe.
 data_dir '/logs/agent/xaa'
+
+# Model selection: run the whole implement-issue pipeline (plan
+# generator, coder, tester, documenter) plus the review-comments agents
+# on Cline's free model, instead of the paid default
+# (anthropic/claude-sonnet-4.6). The DSL has no global model setting:
+# `configure_agent` registers a proc per agent class, and the returned
+# hash is merged into the kwargs the class is initialized with. The
+# classes below are all agents that drive the `cline` CLI; the
+# AiAgents helpers (diff interpreter, executor, one-line diff
+# summarizer) talk to OpenRouter via RubyLLM and cannot resolve
+# Cline-hosted model ids, so they keep their default model.
+%i[
+  CoderAgent
+  DocumenterAgent
+  FeedbackAnalystAgent
+  PlanGeneratorAgent
+  ReviewResponderAgent
+  TesterAgent
+].each do |agent_class_name|
+  configure_agent(agent_class_name) { { model: 'cline-free/mimo-v2.6-flash' } }
+end
