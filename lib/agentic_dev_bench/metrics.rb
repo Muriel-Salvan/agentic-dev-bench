@@ -6,7 +6,8 @@ module AgenticDevBench
   # * Exit code (success/failure flag)
   # * Elapsed time of the run
   # * Verifier outcome: the reward grade and pass/fail verdict read from
-  #   Harbor's per-trial result, plus any exception that aborted grading
+  #   Harbor's per-trial result, plus the agent- and verifier-phase exceptions
+  #   derived from the trial's +exception_info+ timestamp
   # * Pushed feature branch(es) vs the sandbox base, with per-branch
   #   commit counts, file lists, and diff --stat summaries
   #
@@ -50,9 +51,16 @@ module AgenticDevBench
     #   number >= 1.0. Distinct from +success+: it captures the actual grade
     #   produced by tests/test.sh, including failures that still left the CLI
     #   exit code at 0.
-    # * +verifier_exception+ - The exception type that aborted the run (e.g.
-    #   +NonZeroAgentExitCodeError+, +RewardFileNotFoundError+), or +nil+ when
-    #   the trial completed without an exception.
+    # * +agent_exception+ - The exception type raised while the agent ran
+    #   (e.g. +NonZeroAgentExitCodeError+ when the agent script exits
+    #   non-zero, including a failed PR-creation step after a successful
+    #   push), or +nil+ when the agent phase completed without an exception.
+    # * +verifier_exception+ - The exception type raised while the separate
+    #   verifier container ran tests/test.sh, or +nil+ when the verifier
+    #   phase completed without an exception.
+    #   Collection failures with no trial result.json (+ResultFileNotFound+,
+    #   +ResultFileUnparseable+) are reported as +agent_exception+, never
+    #   as +verifier_exception+.
     # * +elapsed_seconds+ - The duration of the run in seconds (rounded to 3 decimal places).
     # * +feature_branch+ - Name of the pushed feature branch (empty when none).
     # * +feature_branches+ - All pushed branches ahead of the base (comma-separated).
@@ -77,7 +85,8 @@ module AgenticDevBench
     def self.collect(run_directory:, github_repository_url:, original_commit:, exit_code:, started_at:, finished_at:)
       Debug.debug("Collecting metrics for #{github_repository_url} @ #{original_commit}")
       verifier = read_verifier_result(run_directory: run_directory)
-      Debug.debug("Verifier result: reward=#{verifier[:reward].inspect} passed=#{verifier[:passed]} exception=#{verifier[:exception].inspect}")
+      Debug.debug("Verifier result: reward=#{verifier[:reward].inspect} passed=#{verifier[:passed]} " \
+                  "agent_exception=#{verifier[:agent_exception].inspect} verifier_exception=#{verifier[:verifier_exception].inspect}")
       diff_info = compute_git_diff(github_repository_url: github_repository_url, original_commit: original_commit, run_directory: run_directory)
       Debug.debug("Diff stat bytes=#{diff_info[:stat].bytesize} patch bytes=#{diff_info[:patch].bytesize}")
 
@@ -86,7 +95,8 @@ module AgenticDevBench
         'success' => exit_code.zero?,
         'verifier_reward' => verifier[:reward],
         'verifier_passed' => verifier[:passed],
-        'verifier_exception' => verifier[:exception],
+        'agent_exception' => verifier[:agent_exception],
+        'verifier_exception' => verifier[:verifier_exception],
         'elapsed_seconds' => (finished_at - started_at).round(3),
         'feature_branch' => diff_info[:primary_branch],
         'feature_branches' => diff_info[:branches].join(', '),
@@ -99,13 +109,22 @@ module AgenticDevBench
 
     private
 
-    # Reads the verifier verdict from Harbor's per-trial result.json.
+    # Reads the verifier verdict and phase exceptions from Harbor's per-trial result.json.
     #
-    # With +environment_mode = "separate"+ (see task.toml), Harbor runs
-    # tests/test.sh in its own container and records the grade in
-    # <run_directory>/jobs/<timestamp>/task__*/result.json under
-    # +verifier_result.rewards.reward+, plus any +exception_info.exception_type+
-    # that aborted the trial (e.g. NonZeroAgentExitCodeError, RewardFileNotFoundError).
+    # With +environment_mode = "separate"+ (see task.toml), Harbor runs the
+    # agent first and then tests/test.sh in its own verifier container. Both
+    # the grade and any trial abort are recorded in
+    # <run_directory>/jobs/<timestamp>/task__*/result.json: the grade under
+    # +verifier_result.rewards.reward+, the abort under
+    # +exception_info.exception_type+ with +exception_info.occurred_at+.
+    #
+    # The exception is attributed to a phase by comparing +occurred_at+
+    # against the +agent_execution+ and +verifier+ windows from the same
+    # file: an abort inside the agent window (e.g. NonZeroAgentExitCodeError
+    # from a failed PR-creation step after a successful push) becomes
+    # +agent_exception+, an abort inside the verifier window becomes
+    # +verifier_exception+. When timestamps are missing or the abort falls
+    # outside both windows, it is attributed to the agent phase.
     #
     # When several task__*/result.json files exist (Harbor retries), the trial
     # with the latest +finished_at+ wins; ties fall back to file mtime.
@@ -115,16 +134,17 @@ module AgenticDevBench
     # @return [Hash] A hash with:
     #   * +:reward+ [Float, nil] The verifier reward grade, or nil when absent.
     #   * +:passed+ [Boolean] True only when the reward is a number >= 1.0.
-    #   * +:exception+ [String, nil] The exception type, or nil when none.
+    #   * +:agent_exception+ [String, nil] The agent-phase exception type, or nil when none.
+    #   * +:verifier_exception+ [String, nil] The verifier-phase exception type, or nil when none.
     def self.read_verifier_result(run_directory:)
-      absent = { reward: nil, passed: false, exception: nil }
-      return absent.merge(exception: 'ResultFileNotFound') if run_directory.nil? || run_directory.to_s.empty?
+      absent = { reward: nil, passed: false, agent_exception: nil, verifier_exception: nil }
+      return absent.merge(agent_exception: 'ResultFileNotFound') if run_directory.nil? || run_directory.to_s.empty?
 
       pattern = File.join(run_directory, 'jobs', '**', 'task__*', 'result.json')
       files = Dir.glob(pattern).select { |path| File.file?(path) }
       if files.empty?
         Debug.debug("No Harbor trial result.json found under #{File.join(run_directory, 'jobs')}")
-        return absent.merge(exception: 'ResultFileNotFound')
+        return absent.merge(agent_exception: 'ResultFileNotFound')
       end
 
       result_file = files.max_by do |path|
@@ -135,18 +155,63 @@ module AgenticDevBench
       Debug.debug("Reading verifier result from #{result_file}")
 
       data = safe_parse_json(result_file)
-      return absent.merge(exception: 'ResultFileUnparseable') if data.nil?
+      return absent.merge(agent_exception: 'ResultFileUnparseable') if data.nil?
 
       reward = data.dig('verifier_result', 'rewards', 'reward')
       reward = reward.to_f if reward.is_a?(Numeric)
       exception = data.dig('exception_info', 'exception_type')
       exception = nil unless exception.is_a?(String) && !exception.empty?
 
+      agent_exception, verifier_exception = split_exception_by_phase(data: data, exception: exception)
+
       {
         reward: reward,
         passed: reward.is_a?(Numeric) && reward >= 1.0,
-        exception: exception
+        agent_exception: agent_exception,
+        verifier_exception: verifier_exception
       }
+    end
+
+    # Attributes a trial exception to the agent or verifier phase.
+    #
+    # Compares +exception_info.occurred_at+ against the +agent_execution+
+    # and +verifier+ windows from the same trial result. An abort inside the
+    # verifier window is a verifier crash; anything else (agent window,
+    # missing timestamps, or an abort outside both windows) is an agent
+    # crash, since the agent runs first and owns collection failures.
+    #
+    # @param data [Hash] The parsed trial result.json.
+    # @param exception [String, nil] The normalized exception type.
+    #
+    # @return [Array<String, String>] The +[agent_exception, verifier_exception]+ pair.
+    def self.split_exception_by_phase(data:, exception:)
+      return [nil, nil] if exception.nil?
+
+      occurred_at = parse_time(data.dig('exception_info', 'occurred_at'))
+      verifier_start = parse_time(data.dig('verifier', 'started_at'))
+      verifier_finish = parse_time(data.dig('verifier', 'finished_at'))
+
+      if occurred_at && verifier_start && verifier_finish && occurred_at >= verifier_start && occurred_at <= verifier_finish
+        [nil, exception]
+      else
+        [exception, nil]
+      end
+    end
+
+    # Parses an ISO8601 timestamp, returning nil on any failure.
+    #
+    # Trial result.json timestamps are Harbor-produced ISO8601 strings, but
+    # parsing must never abort metrics collection.
+    #
+    # @param value [Object] The raw timestamp value.
+    #
+    # @return [Time, nil] The parsed time, or nil when absent or unparseable.
+    def self.parse_time(value)
+      return nil unless value.is_a?(String) && !value.empty?
+
+      Time.iso8601(value)
+    rescue ArgumentError
+      nil
     end
 
     # Parses a JSON file, returning nil (with a debug log) on any failure.

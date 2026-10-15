@@ -38,7 +38,7 @@ module AgenticDevBench
   #   Overall: PASS (all metrics successful)
   #
   # Scalar metrics (exit code, success, verifier_reward, verifier_passed,
-  # verifier_exception, branch, commit/file counts) render in the table; the
+  # agent/verifier exceptions, branch, commit/file counts) render in the table; the
   # multi-line diff --stat prints verbatim below it, and the full unified
   # diff is saved to results/git_diff.patch. Note that +success+ only
   # reflects the Harbor CLI process; +verifier_passed+ is the verifier's
@@ -72,7 +72,11 @@ module AgenticDevBench
     end
 
     # Success criteria for the global status printed at the end of
-    # +execute+ (see +#report_overall_status!+).
+    # +execute+ (see +#report_overall_status!+). The status is strict: it
+    # is successful only when the verifier passes completely and neither
+    # the agent nor the verifier phase raised an exception (a passing
+    # grade with an agent crash — e.g. a failed PR-creation step after a
+    # successful push — still fails).
     #
     # Maps every scalar metric that has a notion of "successful" (as
     # produced by +Metrics.collect+) to a predicate over its value;
@@ -86,6 +90,7 @@ module AgenticDevBench
       'success' => ->(value) { value == true },
       'verifier_reward' => ->(value) { value.is_a?(Numeric) && value >= 1.0 },
       'verifier_passed' => ->(value) { value == true },
+      'agent_exception' => ->(value) { value.nil? },
       'verifier_exception' => ->(value) { value.nil? },
       'feature_branch' => ->(value) { !value.to_s.empty? },
       'commits_ahead' => ->(value) { value.to_i >= 1 },
