@@ -45,14 +45,17 @@ echo "xaa.sh: delegating to xaa for GitHub issue #${issue_number}"
 # The container's WORKDIR is /workspace (the cloned sandbox repo),
 # so the agent starts directly in the repo; no `cd repo` here.
 
-# Run xaa and capture its exit code. Under `set -e`, a non-zero exit from
-# xaa would otherwise abort the script before we can record it, so the
-# if/else below preserves the code for the final exit.
-if xaa implement-issue "${issue_number}" --no-interactive; then
-  xaa_exit_code=0
-else
-  xaa_exit_code=$?
-fi
+# Create an isolated worktree for this issue, non-interactively.
+# `xaa start-task --branch` skips the STDIN branch-name prompt, creates
+# the branch (if needed), sets up the git worktree under .worktrees/, and
+# pushes the branch upstream.
+branch="issue-${issue_number}"
+xaa start-task --branch "${branch}" --no-interactive
+
+# From here on, work inside the worktree so the main checkout stays clean.
+# This mirrors TaskStarterAgent's mapping: `.worktrees/<branch with / -> _>`.
+worktree=".worktrees/${branch//\//_}"
+cd "${worktree}"
 
 # xaa's session state lives under /logs/agent/xaa (see
 # x_aeon_agents_config.rb data_dir). That path is a Harbor bind mount
@@ -62,5 +65,7 @@ fi
 # artifact) and outside /logs/artifacts (which Harbor re-uploads into the
 # verifier), so its deep sessions/... tree is never cp'd or tar'd.
 
-# Exit with the same code as xaa.
-exit "${xaa_exit_code}"
+# Run the implementation as the final command. `exec` replaces this shell,
+# so xaa's exit code is the script's exit code directly -- no if/else or
+# `exit $?` bookkeeping needed (and `set -e` stays happy).
+exec xaa implement-issue "${issue_number}" --no-interactive
