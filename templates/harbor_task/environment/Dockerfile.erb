@@ -57,7 +57,7 @@ ENV GIT_TERMINAL_PROMPT=0 GH_PROMPT_DISABLED=1 GCM_INTERACTIVE=never
 # than into the sandbox repository's project bundle. The gem is pinned
 # to the exact release the benchmark scenarios are validated against;
 # bump deliberately when a newer x_aeon_agents release is adopted.
-RUN gem install --no-document x_aeon_agents -v 1.3.0
+RUN gem install --no-document x_aeon_agents -v 2.0.0
 
 # Clone the sandbox repository at container start (run time), NOT at
 # build time: the GitHub token is injected only via [environment.env]

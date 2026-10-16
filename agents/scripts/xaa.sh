@@ -68,4 +68,4 @@ cd "${worktree}"
 # Run the implementation as the final command. `exec` replaces this shell,
 # so xaa's exit code is the script's exit code directly -- no if/else or
 # `exit $?` bookkeeping needed (and `set -e` stays happy).
-exec xaa implement-issue "${issue_number}" --no-interactive
+exec xaa implement-issue "${issue_number}" --pr-base main --no-interactive
