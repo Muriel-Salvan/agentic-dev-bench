@@ -1,8 +1,12 @@
-# Base image for the Harbor task environment.
+﻿# Base image for the Harbor task environment.
 # Pinned to the exact Ruby patch (3.4.11) the benchmark scenarios are
 # validated against, so the floating `3.4` tag can never silently drift
 # the interpreter under the agent and the verifier.
 FROM ruby:3.4.11-bookworm
+
+ENV NODE_MAJOR_VERSION=26
+ENV CLINE_VERSION=3.0.73
+ENV X_AEON_AGENTS_VERSION=2.0.1
 
 # Install required system packages.
 # git: clone/push the sandbox repo; gh: issues/PRs/API without
@@ -29,15 +33,15 @@ RUN mkdir -p /usr/share/keyrings \
 # (Node 20+, 22 recommended); the npm package resolves the platform binary
 # so no extra runtime is needed. Both pins are deliberate, bump together
 # when a newer Cline release is adopted.
-ENV NODE_MAJOR=22 CLINE_VERSION=3.0.71
 RUN mkdir -p /etc/apt/keyrings \
   && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
     | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
-  && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" \
+  && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR_VERSION.x nodistro main" \
     > /etc/apt/sources.list.d/nodesource.list \
   && apt-get update -qq && apt-get install -y --no-install-recommends nodejs \
   && rm -rf /var/lib/apt/lists/* \
-  && npm install -g cline@$CLINE_VERSION \
+  && npm install -g cline@$CLINE_VERSION skillkit@latest \
+  && mkdir -p /usr/lib/node_modules && npm config set prefix /usr/lib/node_modules \
   && node --version && npm --version && cline --version
 
 # Non-secret git/gh defaults baked into the image. Credentials
@@ -57,7 +61,7 @@ ENV GIT_TERMINAL_PROMPT=0 GH_PROMPT_DISABLED=1 GCM_INTERACTIVE=never
 # than into the sandbox repository's project bundle. The gem is pinned
 # to the exact release the benchmark scenarios are validated against;
 # bump deliberately when a newer x_aeon_agents release is adopted.
-RUN gem install --no-document x_aeon_agents -v 2.0.0
+RUN gem install --no-document x_aeon_agents -v $X_AEON_AGENTS_VERSION
 
 # Clone the sandbox repository at container start (run time), NOT at
 # build time: the GitHub token is injected only via [environment.env]

@@ -1,0 +1,42 @@
+name: Add --interactive CLI option using a Cline free model
+
+source:
+  repository: Muriel-Salvan/x_aeon_agents
+  commit: v1.2.0
+
+sandbox:
+  owner_env: GITHUB_OWNER
+  name_prefix: agentic-dev-bench
+
+issue:
+  title: Add a --(no-)interactive CLI option to skip user reviews.
+  body: |
+    This issue describes a new feature that should not break the current features.
+    
+    The goal is to add a global boolean --(no-)interactive CLI flag and its corresponding config option (similar to the --debug flag).
+    This flag should default to true, and can be set in the config DSL file (same mechanism as the debug flag, except that there is no need for a default env var).
+
+    This interactive config option should be used in the `review_content` helper:
+    - If this is `true` then the current behaviour stays.
+    - If this is `false` then the method should return the same content to be reviewed, as if the user automatically accepted it.
+
+    Unit tests should be adapted for this new flag, and new ones added:
+    - Tests of the new config DSL option.
+    - Tests of the new global CLI parameter.
+    - New tests for every agent using the `review_content` helper: check that when the interactive option is false then the review was automatically accepted without user input.
+
+    Documentation should also be adapted accordingly.
+
+agent:
+  # Harbor agent identifier: a name from Harbor's agent catalog (below) or,
+  # for the repo-local custom agent, its Python import path. With the custom
+  # agent, `model` becomes the repo-relative path of the bash script
+  # implementing the agent (see agents/scripts/README.md):
+  #   name: bash_script_agent.agent:BashScriptAgent
+  #   model: agents/scripts/example-agent.sh
+  name: cline-cli
+  # Model identifier (Harbor agent registry)
+  model: cline:cline-free/muse-spark-1.3-contributor
+
+evaluation:
+  ruby: "exit(`bundle exec ruby bin/xaa help`.include?('--no-interactive') ? 0 : 1)"

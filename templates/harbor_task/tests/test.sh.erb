@@ -69,6 +69,33 @@ if [ -z "$FEATURE_BRANCH" ]; then
 fi
 echo "PASS: feature branch $FEATURE_BRANCH pushed to origin with $(git rev-list --count "origin/$BASE_BRANCH..origin/$FEATURE_BRANCH") commit(s) beyond $BASE_BRANCH"
 
+# Check that a PR has been effectively created for this feature branch.
+# The verifier queries the GitHub API via the `gh` CLI for an open PR whose
+# head is the feature branch (owner:branch) and whose base is the base branch,
+# and fails unless at least one such PR exists.
+REPO_URL_PATH="${REPO_URL##*/}"
+REPO_OWNER_AND_NAME="${REPO_URL#*github.com/}"
+REPO_OWNER_AND_NAME="${REPO_OWNER_AND_NAME%.git}"
+REPO_OWNER="${REPO_OWNER_AND_NAME%/*}"
+REPO_NAME="${REPO_OWNER_AND_NAME#*/}"
+
+GH_TOKEN="${GITHUB_TOKEN:-$GH_TOKEN}"
+if [ -z "$GH_TOKEN" ]; then
+  echo "WARN: neither GITHUB_TOKEN nor GH_TOKEN is set; skipping PR check" >&2
+else
+  PR_OUTPUT="$(gh pr list \
+    --repo "$REPO_OWNER/$REPO_NAME" \
+    --head "$REPO_OWNER:$FEATURE_BRANCH" \
+    --base "$BASE_BRANCH" \
+    --state open \
+    --json number 2>/dev/null)" || PR_OUTPUT=""
+  if [ -z "$PR_OUTPUT" ]; then
+    fail "no open pull request found for feature branch $FEATURE_BRANCH"
+  fi
+  PR_NUMBER="$(echo "$PR_OUTPUT" | grep -m1 '"number"' | grep -oE '[0-9]+' | head -n1)"
+  echo "PASS: open pull request #$PR_NUMBER found for feature branch $FEATURE_BRANCH"
+fi
+
 # Check that the branch diff against the base branch modifies at
 # least one file under ./lib and one under ./spec.
 CHANGED_FILES="$(git diff --name-only "origin/$BASE_BRANCH" "origin/$FEATURE_BRANCH")"

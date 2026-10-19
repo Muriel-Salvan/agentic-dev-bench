@@ -1,4 +1,4 @@
-name: Add greeting helper
+name: Add greeting helper using x_aeon_agents free model
 
 source:
   repository: Muriel-Salvan/cline-rb
