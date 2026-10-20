@@ -90,6 +90,15 @@ module AgenticDevBench
     # should run, relative to the repository root.
     BASH_SCRIPT_AGENT_PREFIX = 'bash_script_agent'
 
+    # Tag given to the image produced by the Docker pre-build (see
+    # #pre_build_environment). The tag is NOT handed to Harbor: Harbor still
+    # builds its own image through `docker compose build`, reusing the
+    # BuildKit layer cache this pre-build warmed. A single fixed tag (instead
+    # of one per run) keeps pre-builds from piling up one image per run; the
+    # previous image simply becomes dangling while its cached layers stay
+    # shared.
+    PRE_BUILD_IMAGE_TAG = 'agentic-dev-bench-prebuild:latest'
+
     # Resolves the scenario's +model+ value for the bash-script custom agent
     # into an absolute script path on the host, failing fast (before Harbor
     # and Docker get involved) when the script does not exist.
@@ -164,14 +173,21 @@ module AgenticDevBench
     #   * +exit_code+ [Integer] The Harbor process exit status.
     #   * +stdout+ [String] The captured stdout.
     #   * +stderr+ [String] The captured stderr.
-    #
-    # @raise [SystemCallError] If the Harbor CLI command fails to execute.
     def run!
       Debug.with_debug_dir(File.join(@run_directory, 'task'), 'Harbor task directory') do |task_dir|
         # Harbor 0.24.0 task directory structure (instruction.md, task.toml,
         # environment/Dockerfile, environment/entrypoint.sh, tests/test.sh) is
         # rendered from the ERB templates in TEMPLATES_DIR; see #write_task_files.
         write_task_files(task_dir)
+
+        # Build the environment image up front, purely to surface Dockerfile
+        # errors in docker-build.log and to warm the layer cache. Harbor is
+        # still called exactly as before and rebuilds (cache hits) itself.
+        build_result = pre_build_environment(task_dir)
+        if build_result.exit_code != 0
+          Debug.debug('Docker build failed; skipping Harbor run')
+          return build_result
+        end
 
         # Harbor 0.24.0 CLI: harbor run -p <task_directory> -a <agent> -m <model>
         # The old `--task <file>` syntax is no longer supported in Harbor 0.24.0
@@ -246,16 +262,57 @@ module AgenticDevBench
             # Docker's own debug knobs (harbor invokes docker under the hood) plus
             # PYTHONUNBUFFERED so Harbor's `--debug` lines aren't block-buffered
             # through the Open3.popen3 pipes (which Debug streams live).
-            env = harbor_env.merge('DOCKER_DEBUG' => '1', 'BUILDKIT_PROGRESS' => 'plain', 'PYTHONUNBUFFERED' => '1')
-            Debug.debug("Harbor debug env: #{Debug.redact({ 'DOCKER_DEBUG' => '1', 'BUILDKIT_PROGRESS' => 'plain', 'PYTHONUNBUFFERED' => '1' }.inspect)}")
+            env = harbor_env.merge(
+              'DOCKER_DEBUG' => '1',
+              'BUILDKIT_PROGRESS' => 'plain',
+              'PYTHONUNBUFFERED' => '1'
+            )
+            Debug.debug("Harbor debug env: #{Debug.redact(env.inspect)}")
           end
           stdout, stderr, status = Debug.debug_exec(env, *argv)
+          # Persist the full Harbor output (including Docker build logs) so
+          # build errors survive even when Harbor cancels a timed-out
+          # `docker compose build` and only its Python traceback remains.
+          File.binwrite(File.join(@run_directory, 'harbor-run.stdout.log'), stdout)
+          File.binwrite(File.join(@run_directory, 'harbor-run.stderr.log'), stderr)
           Result.new(status.exitstatus, stdout, stderr)
         end
       end
     end
 
     private
+
+    # Builds the task's environment image with plain `docker build`, before
+    # Harbor runs, so Dockerfile errors are captured in +docker-build.log+
+    # (inside the run directory) instead of being buried in Harbor's output.
+    #
+    # The image is deliberately NOT passed to Harbor: Harbor is invoked
+    # exactly as it always was and builds its own image with
+    # `docker compose build` from the same Dockerfile and build context
+    # (+task_dir/environment+). Both go through the same BuildKit builder, so
+    # Harbor's build reuses the layers cached here and is near-instant when
+    # this build succeeded.
+    #
+    # +--progress=plain+ makes the captured log a complete, readable build
+    # transcript (the default tty-style progress is useless in a file).
+    #
+    # @param task_dir [String] The rendered Harbor task directory.
+    # @return [Result] The docker build result.
+    def pre_build_environment(task_dir)
+      build_context = File.join(task_dir, 'environment')
+      Debug.debug("Pre-building Harbor environment image (cache warm-up, tag #{PRE_BUILD_IMAGE_TAG})")
+      stdout, stderr, status = Debug.debug_exec(
+        'docker', 'build',
+        '--progress=plain',
+        '--tag', PRE_BUILD_IMAGE_TAG,
+        '--file', File.join(build_context, 'Dockerfile'),
+        build_context
+      )
+      File.binwrite(File.join(@run_directory, 'docker-build.stdout.log'), stdout)
+      File.binwrite(File.join(@run_directory, 'docker-build.stderr.log'), stderr)
+      Debug.debug("Docker build logs written (exit=#{status.exitstatus})")
+      Result.new(status.exitstatus, stdout, stderr)
+    end
 
     # Generates the Harbor task directory from the ERB templates in
     # TEMPLATES_DIR.
