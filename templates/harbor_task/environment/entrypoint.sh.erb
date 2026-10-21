@@ -30,6 +30,54 @@ mkdir -p "$ADB_LOG_DIR" 2>/dev/null || true
 touch "$ADB_LOG" 2>/dev/null || true
 adb_note() { echo "$@"; echo "$@" >>"$ADB_LOG" 2>/dev/null || true; }
 adb_err() { echo "$@" >&2; echo "$@" >>"$ADB_LOG" 2>/dev/null || true; }
+
+# Memory watchdog: sample memory/swap/disk every 5 seconds.
+# Runs in background, writes to stderr AND the entrypoint log (which
+# Harbor preserves under artifacts/logs/artifacts/).
+# Diagnostic-grade: logs a STARTUP banner plus a HEARTBEAT line for
+# EVERY sample (not only under pressure), so a later silent SIGKILL
+# (exit 137) can be told apart from "watchdog never ran" and from
+# "memory was fine". A PRESSURE flag marks samples over threshold.
+# POSIX sh (dash) compatible: no `local`, no ternary in $(( )).
+adb_watchdog() {
+  adb_note "MEMORY WATCHDOG STARTUP: pid=$$ interval=5s thresholds: used>80% or used>2GB, avail<20%"
+  _beat=0
+  while true; do
+    _beat=$((_beat + 1))
+    _total=$(awk '/MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
+    _free=$(awk '/MemFree:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
+    _avail=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
+    case "$_total" in ''|*[!0-9]*) _total=0 ;; esac
+    case "$_free" in ''|*[!0-9]*) _free=0 ;; esac
+    case "$_avail" in ''|*[!0-9]*) _avail=0 ;; esac
+    _used=$((_total - _free))
+    _used_pct=0; _avail_pct=0
+    if [ "$_total" -gt 0 ]; then
+      _used_pct=$((_used * 100 / _total))
+      _avail_pct=$((_avail * 100 / _total))
+    fi
+    _swap_total=$(awk '/SwapTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
+    _swap_free=$(awk '/SwapFree:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
+    case "$_swap_total" in ''|*[!0-9]*) _swap_total=0 ;; esac
+    case "$_swap_free" in ''|*[!0-9]*) _swap_free=0 ;; esac
+    _swap_used=$((_swap_total - _swap_free))
+    _swap_pct=0
+    if [ "$_swap_total" -gt 0 ]; then
+      _swap_pct=$((_swap_used * 100 / _swap_total))
+    fi
+    # Disk snapshot (best-effort): pressure deaths are also caused by
+    # full disks during gem/skill downloads. Single line, no header.
+    _disk=$(df -h / /tmp /workspace 2>/dev/null | awk 'NR>1 {printf "%s:%s/%s(%s) ", $6, $3, $2, $5}')
+    _flag="ok"
+    if [ "$_total" -gt 0 ] && { [ "$_used_pct" -gt 80 ] || [ "$_used" -gt 2000000 ]; }; then
+      _flag="PRESSURE"
+    elif [ "$_total" -gt 0 ] && [ "$_avail_pct" -lt 20 ]; then
+      _flag="LOW_AVAIL"
+    fi
+    adb_note "MEMORY WATCHDOG HEARTBEAT #${_beat} [${_flag}]: total=${_total}kB free=${_free}kB avail=${_avail}kB used=${_used}kB (${_used_pct}%) swap_used=${_swap_used}kB (${_swap_pct}%) disk='${_disk}'"
+    sleep 5
+  done
+}
 REPO_URL="${REPO_URL:?REPO_URL must be set}"
 BASE_BRANCH="${BASE_BRANCH:-main}"
 WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
@@ -59,6 +107,35 @@ if [ ! -d "$WORKSPACE_DIR/.git" ]; then
     if git -C "$WORKSPACE_DIR" checkout "$BASE_BRANCH" >"$checkout_log" 2>&1; then
       cat "$checkout_log"
       cat "$checkout_log" >>"$ADB_LOG" 2>/dev/null || true
+      if [ -f "$WORKSPACE_DIR/.skills" ]; then
+        # skillkit resolves the .skills manifest and the target skills
+        # dir ('.cline/skills') RELATIVE TO THE CURRENT DIRECTORY, so run
+        # from inside the fresh clone -- entrypoint cwd is still / here
+        # (see `cd /` above). A subshell keeps the outer cwd untouched.
+        adb_note "adb-entrypoint: installing skills (cwd=$(pwd), workspace=$WORKSPACE_DIR)"
+        adb_note "adb-entrypoint: skills pre-state: df $(df -h / /tmp "$WORKSPACE_DIR" 2>/dev/null | awk 'NR>1 {printf "%s:%s/%s(%s) ", $6, $3, $2, $5}')"
+        skills_log="$(mktemp)"
+        # Guard against `set -e` (line 2): a failing `xaa` must NOT kill
+        # PID 1 before skills_status is captured -- hence if/then/else.
+        if command -v xaa >/dev/null 2>&1; then
+          if ( cd "$WORKSPACE_DIR" && xaa install-skills --debug >"$skills_log" 2>&1 ); then
+            skills_status=0
+          else
+            skills_status=$?
+          fi
+        else
+          echo "xaa install-skills: command not found" >"$skills_log" 2>&1
+          skills_status=127
+        fi
+        cat "$skills_log"
+        cat "$skills_log" >>"$ADB_LOG" 2>/dev/null || true
+        rm -f "$skills_log"
+        adb_note "adb-entrypoint: skills done (exit=$skills_status, cwd=$(pwd))"
+        adb_note "adb-entrypoint: skills post-state: df $(df -h / /tmp "$WORKSPACE_DIR" 2>/dev/null | awk 'NR>1 {printf "%s:%s/%s(%s) ", $6, $3, $2, $5}'); installed: $(ls -d "$WORKSPACE_DIR/.cline/skills" 2>/dev/null || echo MISSING)"
+        if [ "$skills_status" -ne 0 ]; then
+          adb_err "adb-entrypoint: WARNING: 'xaa install-skills' failed (exit $skills_status)."
+        fi
+      fi
     else
       checkout_status=$?
       adb_err "adb-entrypoint: ERROR: 'git checkout $BASE_BRANCH' failed (exit $checkout_status)."
@@ -84,5 +161,11 @@ else
   # verifier before tests run, so an existing checkout is left as-is.
   adb_note "$WORKSPACE_DIR already contains a git checkout; leaving it in place"
 fi
+
+# Start the memory watchdog in the background before handing off to the
+# agent command. It logs to stderr + entrypoint.log every time memory
+# pressure is high, so a silent SIGKILL (exit 137) leaves a trace.
+adb_watchdog &
+adb_note "Memory watchdog started (PID $!)"
 
 exec "$@"

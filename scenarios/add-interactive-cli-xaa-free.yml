@@ -2,7 +2,7 @@ name: Add --interactive CLI option using x_aeon_agents free model
 
 source:
   repository: Muriel-Salvan/x_aeon_agents
-  commit: v1.2.0
+  commit: agentic_dev_bench_test
 
 sandbox:
   owner_env: GITHUB_OWNER

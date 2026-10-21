@@ -50,12 +50,15 @@ echo "xaa.sh: delegating to xaa for GitHub issue #${issue_number}"
 # the branch (if needed), sets up the git worktree under .worktrees/, and
 # pushes the branch upstream.
 branch="issue-${issue_number}"
-xaa start-task --branch "${branch}" --no-interactive
+xaa start-task --branch "${branch}" --no-interactive --debug
 
 # From here on, work inside the worktree so the main checkout stays clean.
 # This mirrors TaskStarterAgent's mapping: `.worktrees/<branch with / -> _>`.
 worktree=".worktrees/${branch//\//_}"
 cd "${worktree}"
+
+# Install agent skills
+xaa install-skills --debug
 
 # xaa's session state lives under /logs/agent/xaa (see
 # x_aeon_agents_config.rb data_dir). That path is a Harbor bind mount
@@ -68,4 +71,4 @@ cd "${worktree}"
 # Run the implementation as the final command. `exec` replaces this shell,
 # so xaa's exit code is the script's exit code directly -- no if/else or
 # `exit $?` bookkeeping needed (and `set -e` stays happy).
-exec xaa implement-issue "${issue_number}" --pr-base main --no-interactive
+exec xaa implement-issue "${issue_number}" --pr-base main --no-interactive --debug
