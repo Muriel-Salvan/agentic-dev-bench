@@ -1,4 +1,4 @@
-﻿# Base image for the Harbor task environment.
+# Base image for the Harbor task environment.
 # Pinned to the exact Ruby patch (3.4.11) the benchmark scenarios are
 # validated against, so the floating `3.4` tag can never silently drift
 # the interpreter under the agent and the verifier.
@@ -6,7 +6,7 @@ FROM ruby:3.4.11-bookworm
 
 ENV NODE_MAJOR_VERSION=26
 ENV CLINE_VERSION=3.0.73
-ENV X_AEON_AGENTS_VERSION=2.0.1
+ENV X_AEON_AGENTS_VERSION=2.3.1
 
 # Install required system packages.
 # git: clone/push the sandbox repo; gh: issues/PRs/API without
@@ -94,6 +94,14 @@ ENV X_AEON_AGENTS_CONFIG=/etc/x_aeon_agents.rb
 # repository (adb-entrypoint.sh clones the GitHub sandbox directly into
 # /workspace, which is Harbor's standard agent workspace).
 WORKDIR /workspace
+
+# Harbor starts the container with `docker compose up -d --wait`. The
+# HEALTHCHECK below succeeds only once adb-entrypoint.sh has finished
+# cloning + installing skills and written /tmp/adb-ready, so Harbor
+# blocks the agent phase until the entrypoint is ready. During the
+# start-period, failed checks do not count toward retries.
+HEALTHCHECK --interval=5s --timeout=5s --start-period=600s --retries=3 \
+  CMD test -f /tmp/adb-ready || exit 1
 
 # Harbor overrides the image CMD (`sh -c "sleep infinity"`) but honors
 # ENTRYPOINT, so adb-entrypoint.sh runs the clone first, then hands

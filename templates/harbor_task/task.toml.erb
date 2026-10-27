@@ -27,7 +27,15 @@ artifacts = [
   { source = "/workspace", destination = "workspace" },
 ]
 
-# Sandbox baseline: GitHub credentials for the agent container.
+# Give Harbor up to 15 minutes to wait for the entrypoint to finish
+# cloning the sandbox repo and installing Cline skills. Harbor enforces
+# this via `asyncio.wait_for` around `docker compose up -d --wait`, so a
+# hung entrypoint becomes a clean EnvironmentStartTimeoutError instead of
+# a silent half-initialized container. The entrypoint's own `timeout`
+# bounds on clone (120s) and skills install (300s) keep normal runs
+# well under this ceiling.
+[environment]
+build_timeout_sec = 900.0
 # Harbor interpolates ${VAR} from the `harbor run` process
 # environment at run time, so the secret never lands in the
 # Docker image layers. HarborRunner#run! always exports
