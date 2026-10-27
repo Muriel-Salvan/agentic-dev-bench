@@ -45,6 +45,8 @@ echo "xaa.sh: delegating to xaa for GitHub issue #${issue_number}"
 # The container's WORKDIR is /workspace (the cloned sandbox repo),
 # so the agent starts directly in the repo; no `cd repo` here.
 
+xaa version --no-interactive --debug
+
 # Create an isolated worktree for this issue, non-interactively.
 # `xaa start-task --branch` skips the STDIN branch-name prompt, creates
 # the branch (if needed), sets up the git worktree under .worktrees/, and
@@ -56,9 +58,6 @@ xaa start-task --branch "${branch}" --no-interactive --debug
 # This mirrors TaskStarterAgent's mapping: `.worktrees/<branch with / -> _>`.
 worktree=".worktrees/${branch//\//_}"
 cd "${worktree}"
-
-# Install agent skills
-xaa install-skills --debug
 
 # xaa's session state lives under /logs/agent/xaa (see
 # x_aeon_agents_config.rb data_dir). That path is a Harbor bind mount

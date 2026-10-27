@@ -97,6 +97,21 @@ module AgenticDevBench
         Debug.debug('Pushing to origin main')
         with_git_trace { git.push('origin', 'HEAD:refs/heads/main') }
         Debug.debug('Push completed')
+
+        # GitHub may leave the repository's default branch pointing at a
+        # nonexistent `master` ref when the account's default branch name
+        # is `master` and auto_init is false (no initial commit). Make
+        # `main` the default branch explicitly so clones/HEAD resolve to
+        # the ref we just pushed, and remove any stale `master` ref.
+        Debug.debug('Setting repository default branch to main')
+        @client.update_repository("#{@owner}/#{@name}", default_branch: 'main')
+        Debug.debug('Repository default branch set to main')
+        begin
+          @client.delete_branch("#{@owner}/#{@name}", 'master')
+          Debug.debug('Stale master branch deleted')
+        rescue Octokit::Error => e
+          Debug.debug("No stale master branch to delete: #{e.message}")
+        end
       end
 
       Debug.debug("Creating GitHub issue in #{@owner}/#{@name}")

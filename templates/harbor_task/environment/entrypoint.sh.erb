@@ -99,7 +99,7 @@ if [ ! -d "$WORKSPACE_DIR/.git" ]; then
   cd /
   rm -rf "$WORKSPACE_DIR"
   clone_log="$(mktemp)"
-  if git clone "$REPO_URL" "$WORKSPACE_DIR" >"$clone_log" 2>&1; then
+  if timeout 120 git clone "$REPO_URL" "$WORKSPACE_DIR" >"$clone_log" 2>&1; then
     cat "$clone_log"
     cat "$clone_log" >>"$ADB_LOG" 2>/dev/null || true
     rm -f "$clone_log"
@@ -108,17 +108,16 @@ if [ ! -d "$WORKSPACE_DIR/.git" ]; then
       cat "$checkout_log"
       cat "$checkout_log" >>"$ADB_LOG" 2>/dev/null || true
       if [ -f "$WORKSPACE_DIR/.skills" ]; then
-        # skillkit resolves the .skills manifest and the target skills
-        # dir ('.cline/skills') RELATIVE TO THE CURRENT DIRECTORY, so run
-        # from inside the fresh clone -- entrypoint cwd is still / here
-        # (see `cd /` above). A subshell keeps the outer cwd untouched.
+        # skillkit resolves the .skills manifest and installs skills
+        # GLOBALLY under $HOME/.cline/skills (see `--global` below), so
+        # the agent's Cline loads them regardless of the repo's cwd.
         adb_note "adb-entrypoint: installing skills (cwd=$(pwd), workspace=$WORKSPACE_DIR)"
         adb_note "adb-entrypoint: skills pre-state: df $(df -h / /tmp "$WORKSPACE_DIR" 2>/dev/null | awk 'NR>1 {printf "%s:%s/%s(%s) ", $6, $3, $2, $5}')"
         skills_log="$(mktemp)"
         # Guard against `set -e` (line 2): a failing `xaa` must NOT kill
         # PID 1 before skills_status is captured -- hence if/then/else.
         if command -v xaa >/dev/null 2>&1; then
-          if ( cd "$WORKSPACE_DIR" && xaa install-skills --debug >"$skills_log" 2>&1 ); then
+          if ( cd "$WORKSPACE_DIR" && timeout 300 xaa install-skills --global --debug >"$skills_log" 2>&1 ); then
             skills_status=0
           else
             skills_status=$?
@@ -131,7 +130,7 @@ if [ ! -d "$WORKSPACE_DIR/.git" ]; then
         cat "$skills_log" >>"$ADB_LOG" 2>/dev/null || true
         rm -f "$skills_log"
         adb_note "adb-entrypoint: skills done (exit=$skills_status, cwd=$(pwd))"
-        adb_note "adb-entrypoint: skills post-state: df $(df -h / /tmp "$WORKSPACE_DIR" 2>/dev/null | awk 'NR>1 {printf "%s:%s/%s(%s) ", $6, $3, $2, $5}'); installed: $(ls -d "$WORKSPACE_DIR/.cline/skills" 2>/dev/null || echo MISSING)"
+        adb_note "adb-entrypoint: skills post-state: df $(df -h / /tmp "$WORKSPACE_DIR" 2>/dev/null | awk 'NR>1 {printf "%s:%s/%s(%s) ", $6, $3, $2, $5}'); installed: $(ls -d "$HOME/.cline/skills" 2>/dev/null || echo MISSING)"
         if [ "$skills_status" -ne 0 ]; then
           adb_err "adb-entrypoint: WARNING: 'xaa install-skills' failed (exit $skills_status)."
         fi
@@ -161,6 +160,17 @@ else
   # verifier before tests run, so an existing checkout is left as-is.
   adb_note "$WORKSPACE_DIR already contains a git checkout; leaving it in place"
 fi
+
+# Mark the container ready for Harbor. Harbor starts the agent container
+# with `docker compose up -d --wait`; the Dockerfile HEALTHCHECK succeeds
+# only when this marker exists, so Harbor blocks the agent phase until
+# clone + skills install have completed (or failed/exited).
+touch /tmp/adb-ready 2>/dev/null || true
+if [ ! -f /tmp/adb-ready ]; then
+  adb_err "adb-entrypoint: ERROR: could not create ready marker /tmp/adb-ready"
+  exit 1
+fi
+adb_note "adb-entrypoint: ready marker written (/tmp/adb-ready)"
 
 # Start the memory watchdog in the background before handing off to the
 # agent command. It logs to stderr + entrypoint.log every time memory
