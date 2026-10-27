@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 #
 # xaa agent script for the repo-local bash-script Harbor agent
 # (bash_script_agent.agent:BashScriptAgent).
@@ -67,7 +67,29 @@ cd "${worktree}"
 # artifact) and outside /logs/artifacts (which Harbor re-uploads into the
 # verifier), so its deep sessions/... tree is never cp'd or tar'd.
 
-# Run the implementation as the final command. `exec` replaces this shell,
-# so xaa's exit code is the script's exit code directly -- no if/else or
-# `exit $?` bookkeeping needed (and `set -e` stays happy).
-exec xaa implement-issue "${issue_number}" --pr-base main --no-interactive --debug
+# Retry configuration for the implementation command.
+# `MAX_RETRIES` defaults to 3 when unset/empty.
+max_retries="${MAX_RETRIES:-3}"
+if ! [[ "${max_retries}" =~ ^[0-9]+$ ]] || (( max_retries < 1 )); then
+  max_retries=3
+fi
+
+# Session ID is unique for this run, but reused for every retry so xaa
+# can resume/reuse the same session across attempts.
+session_id="session-$(date +%s)-$$-${RANDOM}"
+
+echo "xaa.sh: using session ID ${session_id} for all ${max_retries} attempt(s)"
+
+last_status=0
+for ((attempt=1; attempt<=max_retries; attempt++)); do
+  echo "===== Attempt ${attempt}/${max_retries} ====="
+  status=0
+  xaa implement-issue "${issue_number}" --pr-base main --no-interactive --debug --session-id "${session_id}" || status=$?
+  echo "===== Finished attempt ${attempt}/${max_retries} (exit code: ${status}) ====="
+  last_status="${status}"
+  if [[ "${status}" -eq 0 ]]; then
+    break
+  fi
+done
+
+exit "${last_status}"
