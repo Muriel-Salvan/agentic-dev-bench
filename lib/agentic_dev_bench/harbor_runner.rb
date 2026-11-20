@@ -1,4 +1,5 @@
 require 'erubis'
+require 'fileutils'
 
 module AgenticDevBench
   # Runs benchmark scenarios in a Harbor task environment.
@@ -155,7 +156,7 @@ module AgenticDevBench
     #
     # @param scenario [AgenticDevBench::Scenario] The benchmark scenario to run.
     # @param sandbox [Hash] The sandbox repository information (as returned by
-    #   GitHubSandbox#provision!).
+    #   GithubSandbox#provision!).
     # @param run_directory [String] The path to the run_directory.
     def initialize(scenario:, sandbox:, run_directory:)
       @scenario = scenario

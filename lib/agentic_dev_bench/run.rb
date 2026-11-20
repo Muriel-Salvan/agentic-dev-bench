@@ -1,3 +1,6 @@
+require 'fileutils'
+require 'yaml'
+
 module AgenticDevBench
   # Orchestrates a benchmark run end-to-end.
   #
@@ -57,7 +60,7 @@ module AgenticDevBench
     #
     # Performs these steps in order:
     # 1. Creates the run directory.
-    # 2. Provisions a GitHub sandbox repository (via GitHubSandbox).
+    # 2. Provisions a GitHub sandbox repository (via GithubSandbox).
     # 3. Writes sandbox metadata to +sandbox.yml+.
     # 4. Runs the Harbor agent (via HarborRunner).
     # 5. Collects metrics.
@@ -76,7 +79,7 @@ module AgenticDevBench
       Debug.debug("Starting run #{@id} in directory #{@directory}")
       FileUtils.mkdir_p(@directory)
 
-      sandbox = GitHubSandbox.new(scenario: @scenario, run: self, keep: keep)
+      sandbox = GithubSandbox.new(scenario: @scenario, run: self, keep: keep)
       begin
         Debug.debug("Provisioning GitHub sandbox for #{@scenario.id}...")
         sandbox_info = sandbox.provision!
