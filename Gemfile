@@ -1,5 +1,6 @@
 source 'https://rubygems.org'
 
+gem 'composable_agents', '~> 3.7'
 gem 'erubis', '~> 2.7'
 gem 'git', '~> 5.6'
 gem 'octokit', '~> 10.0'

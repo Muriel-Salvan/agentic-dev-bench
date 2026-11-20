@@ -13,10 +13,16 @@ module AgenticDevBench
   #
   # Each run creates a directory under +runs/+ with a timestamp-ID prefix
   # (e.g. +runs/20261007T120000Z-3f9a2b1c+). Inside:
-  # * +sandbox.yml+ - The GitHub sandbox metadata
-  # * +stdout.log+ - Standard output from the Harbor run
-  # * +stderr.log+ - Standard error from the Harbor run
-  # * +result.yml+ - The collected metrics
+  # * +sandbox.yml+ - The GitHub sandbox metadata (debug builds only)
+  # * +results/result.yml+ - The collected metrics
+  # * +results/stdout.log+ - Standard output from the Harbor run
+  # * +results/stderr.log+ - Standard error from the Harbor run
+  # * +results/git_diff.patch+ - Full unified diff of the pushed branch(es)
+  # * +task/+ - The generated Harbor task (instruction, tests, environment)
+  # * +jobs/+ - Harbor job and trial artifacts
+  #
+  # The +analyze-run+ CLI command adds a human-readable +analysis.md+ report
+  # to the run directory (see AgenticDevBench::RunAnalyzer).
   #
   # == Example
   #
@@ -25,12 +31,44 @@ module AgenticDevBench
   #   puts "Run: runs/#{run_id}"
   #
   class Run
+    # Root directory, relative to the project root, holding one sub-folder
+    # per run. The folder name is the run ID.
+    RUNS_DIR = 'runs'
+
     class << self
       # @return [Integer] Global next run index
       def next_run_index
         @next_run_index ||= 0
         @next_run_index += 1
-        @next_run_index
+      end
+
+      # Returns the absolute path of the directory of a given run.
+      #
+      # @param run_id [String] The run ID (a sub-folder name under +runs/+).
+      #
+      # @return [String] The absolute path of the run directory.
+      #
+      # @example
+      #   AgenticDevBench::Run.directory_for('202610141540011-greeting-cline-ok')
+      #   # => "C:/.../agentic-dev-bench/runs/202610141540011-greeting-cline-ok"
+      def directory_for(run_id)
+        File.expand_path(File.join(RUNS_DIR, run_id))
+      end
+
+      # Returns the IDs of all existing runs.
+      #
+      # Each sub-folder of +runs/+ is one benchmark run; its folder name is
+      # the run ID (the timestamp-ID built by +#initialize+, possibly renamed
+      # by hand).
+      #
+      # @return [Array<String>] The sorted run IDs (+[]+ when the +runs/+
+      #   directory does not exist or holds no sub-folder).
+      #
+      # @example
+      #   AgenticDevBench::Run.all_ids
+      #   # => ["202610141540011-greeting-cline-ok", "202610160855161-greeting-xaa-ok"]
+      def all_ids
+        Dir[File.join(RUNS_DIR, '*')].select { |path| File.directory?(path) }.map { |path| File.basename(path) }.sort
       end
     end
 
@@ -53,7 +91,7 @@ module AgenticDevBench
     def initialize(scenario)
       @scenario = scenario
       @id = "#{Time.now.utc.strftime('%Y%m%d%H%M%S')}#{Run.next_run_index}"
-      @directory = File.expand_path(File.join('runs', @id))
+      @directory = self.class.directory_for(@id)
     end
 
     # Executes the benchmark run end-to-end.

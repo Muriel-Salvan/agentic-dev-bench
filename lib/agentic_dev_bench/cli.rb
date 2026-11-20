@@ -56,6 +56,52 @@ module AgenticDevBench
   #
   #   $ bundle exec bin/agentic-dev-bench execute add-greeting --keep
   #
+  # === list-runs
+  #
+  # Lists all available run IDs, one per line. Each sub-folder of +runs/+ is
+  # one benchmark run and its folder name is the run ID accepted by
+  # +analyze-run+. IDs are sorted, so the most recent run is printed last.
+  # When no run exists yet, a hint is printed on stderr and nothing is
+  # written to stdout (keeping the output safe to pipe).
+  #
+  #   $ bundle exec bin/agentic-dev-bench list-runs
+  #   202610141540011-greeting-cline-ok
+  #   202610160855161-greeting-xaa-ok
+  #   202611131127241-interactive-xaa-ok
+  #   202611131237301-interactive-cline-ko
+  #
+  # === analyze-run RUN_ID
+  #
+  # Analyzes a completed run and writes a human-readable report to
+  # +runs/RUN_ID/analysis.md+.
+  #
+  #   $ bundle exec bin/agentic-dev-bench analyze-run 202611131237301-interactive-cline-ko
+  #   Result: FAILURE
+  #   Analysis written: runs/202611131237301-interactive-cline-ko/analysis.md
+  #
+  # The report covers the task, the agent name and model, an overview of the
+  # verifier-observed results (branch pushed, pull request created,
+  # production/tests/documentation modified, tests passing, feature working),
+  # an analysis of the production code, the tests and the documentation, and a
+  # chronological summary of the agent run. The analyses and the summary are
+  # produced by dedicated Cline agents (see AgenticDevBench::RunAnalyzer),
+  # configured with the +CLINE_API_KEY+ environment variable and overridable
+  # through +ANALYSIS_PROVIDER+ and +ANALYSIS_MODEL+; their traces go to
+  # +runs/RUN_ID/analysis.log+. Their answers are limited to 30 lines (60 for
+  # the run summary), an answer that misses or breaks its output artifact is
+  # retried up to 3 times, and a section whose agent still fails is rendered
+  # with the error instead of aborting the report.
+  #
+  # The verdict printed is +verifier_passed+ (the verifier's actual grade), not
+  # +success+ (which only reflects the Harbor CLI exit code) — see the
+  # +execute+ section above and AgenticDevBench::Metrics.
+  #
+  # The command prints the verdict and the path of the generated file, and
+  # raises +Thor::Error+ (exit status 1, see +Cli.exit_on_failure?+) when the
+  # run does not exist, its +results/result.yml+ is missing or unparsable, or
+  # no scenario matches the run. Use +--debug+ to trace which files are read
+  # and written.
+  #
   class Cli < Thor
     # Exits with status 1 when a command raises +Thor::Error+.
     #
@@ -162,6 +208,58 @@ module AgenticDevBench
       puts "Full patch: runs/#{run_id}/results/git_diff.patch"
       puts "Run: runs/#{run_id}"
       report_overall_status!(result)
+    end
+
+    # Lists all available run IDs in the +runs/+ directory.
+    #
+    # Each sub-folder of +runs/+ is one benchmark run (see
+    # AgenticDevBench::Run) and its folder name is the run ID accepted by
+    # +analyze-run+.
+    #
+    # @return [void]
+    #
+    # @example
+    #   $ bundle exec bin/agentic-dev-bench list-runs
+    #   202610141540011-greeting-cline-ok
+    #   202610160855161-greeting-xaa-ok
+    desc 'list-runs', 'Lists all available run IDs from the +runs/+ directory.'
+    def list_runs
+      ids = Run.all_ids
+      if ids.empty?
+        warn "No runs found in #{Run::RUNS_DIR}/."
+      else
+        ids.each { |id| puts id }
+      end
+    end
+
+    # Analyzes a benchmark run and writes a human-readable report.
+    #
+    # Delegates to AgenticDevBench::RunAnalyzer, which reads the run artifacts
+    # (metrics, sandbox metadata, task, verifier output and the sandbox clone
+    # kept for the diff) and writes +runs/RUN_ID/analysis.md+, then prints the
+    # +verifier_passed+ verdict and the path of the generated report.
+    #
+    # @param run_id [String] The run ID to analyze (a sub-folder name under
+    #   +runs/+, as listed by +list-runs+).
+    #
+    # @option options [Boolean] :debug (false)
+    #   When +true+, enables debug logging (files read and written, diff
+    #   commit selection, agents' traces in +runs/RUN_ID/analysis.log+).
+    #
+    # @return [void]
+    #
+    # @example
+    #   $ bundle exec bin/agentic-dev-bench analyze-run 202610141540011-greeting-cline-ok
+    #   Result: SUCCESS
+    #   Analysis written: runs/202610141540011-greeting-cline-ok/analysis.md
+    desc 'analyze-run RUN_ID', 'Analyzes a run and writes analysis.md into its run folder.'
+    option :debug, type: :boolean, default: false, desc: 'Enable debug logging for the analysis.'
+    def analyze_run(run_id)
+      Debug.set_debug!(options[:debug])
+      analyzer = RunAnalyzer.new(run_id)
+      analyzer.analyze!
+      puts "Result: #{analyzer.passed? ? 'SUCCESS' : 'FAILURE'}"
+      puts "Analysis written: #{File.join(Run::RUNS_DIR, run_id, RunAnalyzer::ANALYSIS_FILE)}"
     end
 
     private
