@@ -10,6 +10,7 @@ This first scaffold uses [Harbor](https://github.com/harbor-framework/harbor), D
 - Docker
 - Harbor installed and available as `harbor`
 - A GitHub token that can create/delete repositories for the configured benchmark owner
+- Node.js, with `node-pty` installed in the project root (`npm install node-pty`). Required on Windows by the `analyze-run` agents: `cline-rb` spawns the `cline` CLI through `pty_compat`, whose Node bridge resolves `node-pty` from its working directory (the run's `analysis/workdir`, whose ancestors include the project root). `package.json`, `package-lock.json` and `node_modules/` are git-ignored: install it once locally.
 
 ## Setup
 
@@ -33,6 +34,11 @@ export CLINE_API_KEY=...
 # RubyLLM.config; injected at run time via Harbor [environment.env]
 # interpolation, never baked into image layers.
 export OPENROUTER_API_KEY=...
+# Optional: provider and model of the Cline agents that write the analyses
+# of `analyze-run` (defaults: cline and nvidia/nemotron-3.5-lightning-free).
+# They run on this host and authenticate with CLINE_API_KEY.
+export ANALYSIS_PROVIDER=cline
+export ANALYSIS_MODEL=nvidia/nemotron-3.5-lightning-free
 ```
 
 Before running the sample, replace the source repository and immutable commit in `scenarios/add-greeting.yml`. The sample task is intentionally a scaffold: use a repository whose language/test setup matches the requirements you want to benchmark.
@@ -116,7 +122,17 @@ bundle exec bin/agentic-dev-bench list-runs
 bundle exec bin/agentic-dev-bench analyze-run 202610141540011-greeting-cline-ok
 ```
 
-`analyze-run` reads `runs/<run_id>/results/result.yml` (through `AgenticDevBench::RunAnalyzer`) and writes a human-readable report to `runs/<run_id>/analysis.md`. For now the report is minimal: it states whether the run succeeded based on the `verifier_passed` verdict — the verifier's actual grade, which is not the same thing as `success` (see [Interpreting run results](#interpreting-run-results)). The command prints the verdict (`Result: SUCCESS` or `Result: FAILURE`) and the path of the generated report, and exits non-zero when the run ID does not exist or when its `result.yml` is missing or unparsable. Pass `--debug` to trace which files are read and written.
+`analyze-run` reads the run artifacts (through `AgenticDevBench::RunAnalyzer`) and writes a human-readable report to `runs/<run_id>/analysis.md`:
+
+- **Task** – the source repository, commit ref and GitHub issue read from the scenario that produced the run (recovered from the sandbox repository name in `sandbox.yml`).
+- **Agent** – the agent name (`cline-cli` or `x_aeon_agents`) and its model (from the scenario for `cline-cli`, from the generated `task/environment/x_aeon_agents_config.rb` for `x_aeon_agents`).
+- **Results** – an overview of the verifier-observed facts: branch pushed, pull request created, production code/tests/documentation modified (derived from the run's diff against `main`), tests passing and feature working. The overall verdict is `verifier_passed` — the verifier's actual grade, which is not the same thing as `success` (see [Interpreting run results](#interpreting-run-results)).
+- **Production code / Tests / Documentation analyses** – each produced by a dedicated [composable_agents](https://github.com/Muriel-Salvan/composable_agents) Cline agent that only receives the relevant part of the run's diff (`./lib`, `./spec` or `README.md`) along with the task description.
+- **Summary of the agent run** – produced by another Cline agent that reads the run directory (Harbor logs, agent session messages, metrics) and reports the chronological steps, improvement opportunities, root cause of any failure and recurring patterns.
+
+The analysis agents run on the host: they need the `cline` CLI and a Cline API key in `CLINE_API_KEY`, and can be pointed at another provider/model with `ANALYSIS_PROVIDER` (default `cline`) and `ANALYSIS_MODEL` (default `nvidia/nemotron-3.5-lightning-free`). Their traces are written to `runs/<run_id>/analysis.log`, and they run from `runs/<run_id>/analysis/workdir` so the files the Cline CLI and the agents create never pollute the project repository. Each agent is asked for an answer shorter than 30 lines (60 lines for the run summary), and an answer that misses or breaks its expected output artifact is retried up to 3 times. A section whose agent still fails (missing key, no network, provider error) is rendered with the error instead of aborting the report, so the rest of the analysis is still written.
+
+The command prints the verdict (`Result: SUCCESS` or `Result: FAILURE`) and the path of the generated report, and exits non-zero when the run ID does not exist, when its `result.yml` is missing or unparsable, or when no scenario matches the run. Pass `--debug` to trace which files are read and written, how the diff commit is selected, and to get the agents' DEBUG traces in `analysis.log`.
 
 ## Security
 

@@ -3,3 +3,8 @@
 
 # Python cache files
 __pycache__/
+
+# Node packages
+package.json
+package-lock.json
+node_modules/

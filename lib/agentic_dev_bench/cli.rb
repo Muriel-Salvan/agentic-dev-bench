@@ -79,16 +79,28 @@ module AgenticDevBench
   #   Result: FAILURE
   #   Analysis written: runs/202611131237301-interactive-cline-ko/analysis.md
   #
-  # The report is deliberately minimal for now: it reads
-  # +results/result.yml+ and states whether the verifier passed. The verdict
-  # analyzed is +verifier_passed+ (the verifier's actual grade), not
+  # The report covers the task, the agent name and model, an overview of the
+  # verifier-observed results (branch pushed, pull request created,
+  # production/tests/documentation modified, tests passing, feature working),
+  # an analysis of the production code, the tests and the documentation, and a
+  # chronological summary of the agent run. The analyses and the summary are
+  # produced by dedicated Cline agents (see AgenticDevBench::RunAnalyzer),
+  # configured with the +CLINE_API_KEY+ environment variable and overridable
+  # through +ANALYSIS_PROVIDER+ and +ANALYSIS_MODEL+; their traces go to
+  # +runs/RUN_ID/analysis.log+. Their answers are limited to 30 lines (60 for
+  # the run summary), an answer that misses or breaks its output artifact is
+  # retried up to 3 times, and a section whose agent still fails is rendered
+  # with the error instead of aborting the report.
+  #
+  # The verdict printed is +verifier_passed+ (the verifier's actual grade), not
   # +success+ (which only reflects the Harbor CLI exit code) — see the
   # +execute+ section above and AgenticDevBench::Metrics.
   #
   # The command prints the verdict and the path of the generated file, and
   # raises +Thor::Error+ (exit status 1, see +Cli.exit_on_failure?+) when the
-  # run does not exist or its +results/result.yml+ is missing or unparsable.
-  # Use +--debug+ to trace which files are read and written.
+  # run does not exist, its +results/result.yml+ is missing or unparsable, or
+  # no scenario matches the run. Use +--debug+ to trace which files are read
+  # and written.
   #
   class Cli < Thor
     # Exits with status 1 when a command raises +Thor::Error+.
@@ -222,22 +234,19 @@ module AgenticDevBench
 
     # Analyzes a benchmark run and writes a human-readable report.
     #
-    # Reads +runs/RUN_ID/results/result.yml+ via
-    # AgenticDevBench::RunAnalyzer, checks the +verifier_passed+ verdict, and
-    # writes +runs/RUN_ID/analysis.md+, then prints the verdict and the path
-    # of the generated report.
+    # Delegates to AgenticDevBench::RunAnalyzer, which reads the run artifacts
+    # (metrics, sandbox metadata, task, verifier output and the sandbox clone
+    # kept for the diff) and writes +runs/RUN_ID/analysis.md+, then prints the
+    # +verifier_passed+ verdict and the path of the generated report.
     #
     # @param run_id [String] The run ID to analyze (a sub-folder name under
     #   +runs/+, as listed by +list-runs+).
     #
     # @option options [Boolean] :debug (false)
-    #   When +true+, enables debug logging (files read and written).
+    #   When +true+, enables debug logging (files read and written, diff
+    #   commit selection, agents' traces in +runs/RUN_ID/analysis.log+).
     #
     # @return [void]
-    #
-    # @raise [Thor::Error] When the run does not exist or its
-    #   +results/result.yml+ is missing or unparsable; +Cli.exit_on_failure?+
-    #   turns the error into exit status 1.
     #
     # @example
     #   $ bundle exec bin/agentic-dev-bench analyze-run 202610141540011-greeting-cline-ok
