@@ -43,6 +43,8 @@ Before running the sample, replace the source repository and immutable commit in
 bundle exec bin/agentic-dev-bench list
 bundle exec bin/agentic-dev-bench execute add-greeting
 bundle exec bin/agentic-dev-bench execute add-greeting --keep
+bundle exec bin/agentic-dev-bench list-runs
+bundle exec bin/agentic-dev-bench analyze-run <run_id>
 ```
 
 Runs are stored below `runs/` and include the sandbox metadata, Harbor stdout/stderr, `result.yml` (scalar metrics plus the diff `--stat`), and `git_diff.patch` (full unified diff of the pushed branch). Successful runs are cleaned up automatically; `--keep` preserves the sandbox for inspection.
@@ -101,6 +103,20 @@ The Harbor adapter is deliberately isolated because Harbor's CLI/API evolves. Th
 The global `Overall:` status is strict: it is successful only when the verifier passes completely **and** neither phase raised an exception. A run can legitimately show `success: true` alongside `verifier_passed: true` but still be `Overall: FAIL` (for example, when the agent pushed the branch and the verifier graded `1.0`, but the agent's mandatory PR-creation step crashed with `422 base invalid`).
 
 The verifier runs in a separate Harbor container (`environment_mode = "separate"`). Because a separate verifier starts from a fresh sandbox without the agent's filesystem changes, the generated `task.toml` declares the agent's `/workspace` as a top-level `artifacts` entry. Harbor collects that directory after the agent finishes and restores it to `/workspace` in the verifier, so `tests/test.sh` grades the agent's actual clone in place (the `destination` field only affects the host-side save path, not the verifier's copy).
+
+## Analyzing runs
+
+Each benchmark run is stored in its own sub-folder under `runs/`, and the folder name is the run ID. Two commands work on those folders:
+
+```bash
+# List the run IDs available under runs/
+bundle exec bin/agentic-dev-bench list-runs
+
+# Analyze one run: writes runs/<run_id>/analysis.md
+bundle exec bin/agentic-dev-bench analyze-run 202610141540011-greeting-cline-ok
+```
+
+`analyze-run` reads `runs/<run_id>/results/result.yml` (through `AgenticDevBench::RunAnalyzer`) and writes a human-readable report to `runs/<run_id>/analysis.md`. For now the report is minimal: it states whether the run succeeded based on the `verifier_passed` verdict — the verifier's actual grade, which is not the same thing as `success` (see [Interpreting run results](#interpreting-run-results)). The command prints the verdict (`Result: SUCCESS` or `Result: FAILURE`) and the path of the generated report, and exits non-zero when the run ID does not exist or when its `result.yml` is missing or unparsable. Pass `--debug` to trace which files are read and written.
 
 ## Security
 
