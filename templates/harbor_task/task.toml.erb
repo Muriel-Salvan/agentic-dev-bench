@@ -23,8 +23,26 @@ environment_type = "docker"
 # or directory` (exit 127). Keeping them equal avoids that trap.
 # Agent debug/session state is kept OUT of /workspace (it lives under
 # the /logs/agent bind mount; see environment/x_aeon_agents_config.rb).
-artifacts = [
-  { source = "/workspace", destination = "workspace" },
+# Exclude volatile/derived trees from artifact collection: Harbor
+# tars the source inside the agent container
+# (tar czf ... --exclude=... -C /workspace .), so these never reach
+# the host trial dir and never hit the Windows host->verifier
+# upload (docker cp / tar fallback) that failed with
+# FileNotFoundError on disappearing
+# .worktrees/issue-1/.x_aeon_agents_test/... session dirs (TOCTOU).
+# The failing path was test-session churn, not source code;
+# .gitignore already ignores .x_aeon_agents_test.
+[[artifacts]]
+source = "/workspace"
+destination = "workspace"
+exclude = [
+  ".x_aeon_agents_test",
+  "*/.x_aeon_agents_test",
+  "**/.x_aeon_agents_test/**",
+  "coverage",
+  "**/coverage/**",
+  ".yardoc",
+  "**/.yardoc/**",
 ]
 
 # Give Harbor up to 15 minutes to wait for the entrypoint to finish

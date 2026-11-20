@@ -35,7 +35,7 @@ data_dir '/logs/agent/xaa'
   ReviewResponderAgent
   TesterAgent
 ].each do |agent_class_name|
-  configure_agent(agent_class_name) { { model: 'reflection/beam-free' } }
+  configure_agent(agent_class_name) { { model: 'nvidia/nemotron-3.5-lightning-free' } }
 end
 
 # The AiAgents helpers (diff interpreter, executor, one-line diff
