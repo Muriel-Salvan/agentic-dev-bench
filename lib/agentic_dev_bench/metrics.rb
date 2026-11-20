@@ -1,3 +1,6 @@
+require 'json'
+require 'time'
+
 module AgenticDevBench
   # Collects and summarizes metrics from benchmark runs.
   #
@@ -32,7 +35,7 @@ module AgenticDevBench
   #   #     "...patch..."]
   #
   class Metrics
-    # Base branch of every sandbox repository (see GitHubSandbox#provision!,
+    # Base branch of every sandbox repository (see GithubSandbox#provision!,
     # which pushes the pinned commit to refs/heads/main).
     BASE_BRANCH = 'main'
 

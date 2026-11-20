@@ -1,3 +1,5 @@
+require 'yaml'
+
 module AgenticDevBench
   # Represents a benchmark scenario loaded from a YAML file.
   #

@@ -1,17 +1,8 @@
-require 'yaml'
-require 'securerandom'
-require 'fileutils'
-require 'tmpdir'
-require 'open3'
-require 'shellwords'
-require 'time'
-require 'json'
+# frozen_string_literal: true
 
-require_relative 'agentic_dev_bench/version'
-require_relative 'agentic_dev_bench/debug'
-require_relative 'agentic_dev_bench/scenario'
-require_relative 'agentic_dev_bench/github_sandbox'
-require_relative 'agentic_dev_bench/harbor_runner'
-require_relative 'agentic_dev_bench/metrics'
-require_relative 'agentic_dev_bench/run'
-require_relative 'agentic_dev_bench/cli'
+require 'zeitwerk'
+
+Zeitwerk::Loader.for_gem.setup
+
+module AgenticDevBench
+end

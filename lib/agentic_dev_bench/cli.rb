@@ -50,13 +50,13 @@ module AgenticDevBench
   # When all checks pass the command prints +Overall: PASS+ and exits 0;
   # otherwise it prints +Overall: FAIL+ listing the failing metrics,
   # repeats them on stderr via +Thor::Error+, and exits 1 (see
-  # +CLI.exit_on_failure?+).
+  # +Cli.exit_on_failure?+).
   #
   # With the +--keep+ option, the GitHub sandbox is preserved after the run:
   #
   #   $ bundle exec bin/agentic-dev-bench execute add-greeting --keep
   #
-  class CLI < Thor
+  class Cli < Thor
     # Exits with status 1 when a command raises +Thor::Error+.
     #
     # +Thor::Base.start+ rescues +Thor::Error+, prints the message on
@@ -126,7 +126,7 @@ module AgenticDevBench
     #   completes for debugging purposes.
     #
     # @raise [Thor::Error] When the scenario is unknown or the global
-    #   success status fails; +CLI.exit_on_failure?+ turns the error
+    #   success status fails; +Cli.exit_on_failure?+ turns the error
     #   into exit status 1.
     #
     # @example Basic execution
@@ -174,7 +174,7 @@ module AgenticDevBench
     # (metrics not successful: ...)</tt> with the failing metric names
     # (their values are already in the table above) and raises
     # +Thor::Error+ carrying the same detail, so Thor prints it on
-    # stderr and the process exits 1 (see +CLI.exit_on_failure?+).
+    # stderr and the process exits 1 (see +Cli.exit_on_failure?+).
     #
     # @param result [Hash<String, Object>] The scalar metrics produced
     #   by +Metrics.collect+ (multi-line +git_diff_stat+ is ignored

@@ -7,7 +7,7 @@ module AgenticDevBench
   # Manages the creation and destruction of ephemeral GitHub repositories
   # to serve as sandboxed environments for benchmark runs.
   #
-  # GitHubSandbox clones a source repository at a specific commit into a
+  # GithubSandbox clones a source repository at a specific commit into a
   # new private repository owned by the benchmark user, and creates the
   # corresponding GitHub issue with the requirements.
   #
@@ -21,7 +21,7 @@ module AgenticDevBench
   #
   # == Example
   #
-  #   sandbox = AgenticDevBench::GitHubSandbox.new(
+  #   sandbox = AgenticDevBench::GithubSandbox.new(
   #     scenario: scenario,
   #     run: run
   #   )
@@ -29,8 +29,8 @@ module AgenticDevBench
   #   # => { repository: "...", repository_url: "...", issue_number: 1, ... }
   #   sandbox.destroy!  # clean up the repository
   #
-  class GitHubSandbox
-    # Initializes a new GitHubSandbox.
+  class GithubSandbox
+    # Initializes a new GithubSandbox.
     #
     # Loads the GitHub owner from the environment (via +scenario.sandbox['owner_env'])
     # and sets up the Octokit client with the provided token.

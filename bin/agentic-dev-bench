@@ -2,4 +2,4 @@
 
 require_relative '../lib/agentic_dev_bench'
 
-AgenticDevBench::CLI.start(ARGV)
+AgenticDevBench::Cli.start(ARGV)
